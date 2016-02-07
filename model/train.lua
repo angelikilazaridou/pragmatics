@@ -16,8 +16,8 @@ cmd:text()
 cmd:text('Options')
 
 -- Data input settings
-cmd:option('-input_h5','/home/angeliki/Documents/projects/git/PRAGMATICS/DATA/visAttCarina/processed/data.h5','path to the h5file containing the preprocessed dataset')
-cmd:option('-input_json','/home/angeliki/Documents/projects/git/PRAGMATICS/DATA/visAttCarina/processed/data.json','path to the json file containing additional info and vocab')
+cmd:option('-input_h5','../DATA/visAttCarina/processed/data.h5','path to the h5file containing the preprocessed dataset')
+cmd:option('-input_json','..//DATA/visAttCarina/processed/data.json','path to the json file containing additional info and vocab')
 cmd:option('-feat_size',-1,'The number of image features')
 -- Select model
 cmd:option('-model','XOR3','What model to use')
@@ -65,7 +65,7 @@ end
 -------------------------------------------------------------------------------
 -- Create the Data Loader instance
 -------------------------------------------------------------------------------
-local loader = DataLoader{h5_file = opt.input_h5, json_file = opt.input_json, label_format = opt.crit, feat_size = opt.feat_size}
+local loader = DataLoader{h5_file = opt.input_h5, json_file = opt.input_json, label_format = opt.crit, feat_size = opt.feat_size, gpu = opt.gpuid}
 local game_size = loader:getGameSize()
 local feat_size = loader:getFeatSize()
 local vocab_size = loader:getVocabSize()
@@ -89,7 +89,6 @@ if opt.crit == 'MSE' then
 else
 	print('Wrong criterion')
 end
-
 
 -- ship everything to GPU, maybe
 if opt.gpuid >= 0 then

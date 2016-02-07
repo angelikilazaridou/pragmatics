@@ -8,6 +8,7 @@ function DataLoader:__init(opt)
 	-- load the json file which contains additional information about the dataset
 	print('DataLoader loading json file: ', opt.json_file)
 	self.info = utils.read_json(opt.json_file)
+	self.gpu = opt.gpu
   	self.vocab_size = self.info.vocab_size 
 	self.game_size = self.info.game_size
 	self.label_format = opt.label_format
@@ -86,10 +87,21 @@ function DataLoader:getBatch(opt)
   	local img_batch = {} --torch.Tensor(batch_size, mem_size, self.feat_size)
   	--initialize one table elements per game size
   	for i=1,feat_size do
-    		table.insert(img_batch, torch.FloatTensor(batch_size,  self.game_size))
+		if self.gpu<0 then
+    			table.insert(img_batch, torch.FloatTensor(batch_size,  self.game_size))
+		else
+			table.insert(img_batch, torch.CudaTensor(batch_size,  self.game_size))
+		end
   	end
+
 	--the labels per gane
-	local label_batch = torch.FloatTensor(batch_size, feat_size)
+
+	local label_batch 
+	if self.gpu<0 then
+		label_batch =  torch.FloatTensor(batch_size, feat_size)
+	else
+		label_batch = torch.CudaTensor(batch_size, feat_size)
+	end
 
 	local max_index = #split_ix
 	local wrapped = false

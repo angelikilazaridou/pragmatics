@@ -12,7 +12,7 @@ from random import shuffle
 def gen_Carina(params):
 	data = []
 	
-	vectors = np.loadtxt('/home/angeliki/Documents/projects/git/PRAGMATICS/DATA/visAttCarina/raw/vectors.txt',dtype=float)
+	vectors = np.loadtxt('/home/angeliki/git/pragmatics/DATA/visAttCarina/raw/vectors.txt',dtype=float)
 	
 	
 	n_concepts = vectors.shape[0]
@@ -63,7 +63,6 @@ def gen_Carina(params):
                                 else:
                                         c[j] = random.uniform(-1,0)
                                         v[j] = 1
-		print b[:3],c[:3],v[:3]
 		# write t
 		dset[i] = np.array([b,c])
 		labels[i] = v 
