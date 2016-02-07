@@ -3,12 +3,113 @@ import random
 from itertools import product,combinations
 import copy
 import numpy as np
+import scipy.io
 import h5py
 import json
 from random import shuffle
 
 
+#generate data were vectors are real visual vectors
+#verlap between TR and TS concepts
+def gen_Carina_vis_vecs(params):
+        data = []
 
+
+	#load binary vecctors
+        vectors = np.loadtxt('../../DATA/visAttCarina/raw/vectors.txt',dtype=int)
+        n_concepts = vectors.shape[0]
+        vocab_size = vectors.shape[1]
+	f = open('../../DATA/visAttCarina/raw/concepts.txt')
+	concepts = [a.strip() for a in f.readlines()]
+	f.close()
+	print "Read ",len(concepts)," carina concepts"
+
+	#load visual vectors
+	vis_vectors = scipy.io.loadmat('../../DATA/visVecs/fc7.mat')['X']
+	feat_size = vis_vectors.shape[1]
+	f = open('../../DATA/visVecs/fc7labels.txt')
+	rows = [a.strip() for a in f.readlines()]
+	f.close()
+	row2id = {}
+	i=0
+	for c in rows:
+		row2id[c] = i
+		i+=1
+	print "Read ",len(row2id)," visual concepts"
+
+        output_h5 = params['output_h5']
+
+        #generate all possible combinations of concepts without repetition 
+        for v in list(combinations(range(n_concepts),params['images'])):
+		c = concepts[v[0]]
+		idx = row2id[c]
+		a = vis_vectors[idx]
+		c = concepts[v[1]]
+		idx = row2id[c]
+		b  = vis_vectors[idx]
+	
+                #XOR solution based on binary vector
+                c = vectors[v[0]] ^ vectors[v[1]]
+                #append data, solution and concepts
+                data.append((a,b,c,v[0],v[1]))
+
+
+        imgs = []
+        n_imgs = len(data)
+
+        #shuffle data
+        shuffle(data)
+
+        #sava data into hd5
+        f = h5py.File(output_h5, "w")
+        dset = f.create_dataset("images", (n_imgs,2,feat_size), dtype='float32') # space for resized images
+        labels = f.create_dataset("labels", (n_imgs,vocab_size),dtype='float32')
+        for i,el in enumerate(data):
+                b = el[0]
+                c = el[1]
+                v = el[2]
+                #convert XOR 0/1 to XOR -1/1
+                for j in range(vocab_size):
+                        if v[j] == 0:
+				v[j] = -1
+		
+                # write t
+                dset[i] = np.array([b,c])
+                labels[i] = v
+                # create image data
+                img = {}
+                img['id'] = i+1 #where to find the image 
+                img['concepts'] = (el[3]+1,el[4]+1) #so that to be able to do analysis
+                imgs.append(img)
+
+        f.close()
+
+        #generate split
+        assign_splits(imgs,params)
+
+        #save json file
+        out = {}
+        out['images'] = []
+        out['vocab_size'] = vocab_size
+        out['game_size']  = params['images']
+
+        for i,img in enumerate(imgs):
+                jimg = {}
+                jimg['split'] = img['split']
+                jimg['id'] = img['id'] # copy over & mantain an id, if present (e.g. coco ids, useful)
+                jimg['concepts'] = img['concepts']
+                out['images'].append(jimg)
+
+
+        json.dump(out, open(params['output_json'], 'w'))
+
+
+        return data,imgs
+
+
+
+#generate data with concept vectors but binary data
+#tr and ts concepts overlap
 def gen_Carina(params):
 	data = []
 	
@@ -249,7 +350,7 @@ if __name__ ==  "__main__":
 	params = vars(args) # convert to ordinary dict
 
 
-        data, imgs = gen_Carina(params)
+        data, imgs = gen_Carina_vis_vecs(params)
 	
 
 	print "Number of asked games:",params['games']

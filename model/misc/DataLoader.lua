@@ -10,6 +10,9 @@ function DataLoader:__init(opt)
 	self.info = utils.read_json(opt.json_file)
 	self.gpu = opt.gpu
   	self.vocab_size = self.info.vocab_size 
+	if opt.vocab_size >0 then
+		self.vocab_size = opt.vocab_size
+	end
 	self.game_size = self.info.game_size
 	self.label_format = opt.label_format
   	print('vocab size is ' .. self.vocab_size)
@@ -78,15 +81,14 @@ end
 function DataLoader:getBatch(opt)
 	local split = utils.getopt(opt, 'split') -- lets require that user passes this in, for safety
 	local batch_size = utils.getopt(opt, 'batch_size', 5) -- how many images get returned at one time (to go through CNN)
-	local feat_size = utils.getopt(opt,'feat_size',self.feat_size)
-
+	
   	local split_ix = self.split_ix[split]
   	assert(split_ix, 'split ' .. split .. ' not found.')
 
   	-- pick an index of the datapoint to load next
   	local img_batch = {} --torch.Tensor(batch_size, mem_size, self.feat_size)
   	--initialize one table elements per game size
-  	for i=1,feat_size do
+  	for i=1,self.feat_size do
 		if self.gpu<0 then
     			table.insert(img_batch, torch.FloatTensor(batch_size,  self.game_size))
 		else
@@ -98,9 +100,9 @@ function DataLoader:getBatch(opt)
 
 	local label_batch 
 	if self.gpu<0 then
-		label_batch =  torch.FloatTensor(batch_size, feat_size)
+		label_batch =  torch.FloatTensor(batch_size, self.vocab_size)
 	else
-		label_batch = torch.CudaTensor(batch_size, feat_size)
+		label_batch = torch.CudaTensor(batch_size, self.vocab_size)
 	end
 
 	local max_index = #split_ix
@@ -117,15 +119,15 @@ function DataLoader:getBatch(opt)
     		assert(ix ~= nil, 'bug: split ' .. split .. ' was accessed out of bounds with ' .. ri)
 
 		--image representations
-		for ii=1,feat_size do
+		for ii=1,self.feat_size do
     			-- fetch the image from h5
     			local img = self.h5_file:read('/images'):partial({ix,ix},{1,2},{ii,ii})
     			img_batch[ii][i] = img
 		end
      
 		--labels
-		seq = torch.FloatTensor(feat_size)
-		seq = self.h5_file:read('/labels'):partial({ix,ix},{1,feat_size}) 
+		seq = torch.FloatTensor(self.feat_size)
+		seq = self.h5_file:read('/labels'):partial({ix,ix},{1,self.vocab_size}) 
     		label_batch[{ {i,i} }] = seq
 
     		-- and record associated info as well
