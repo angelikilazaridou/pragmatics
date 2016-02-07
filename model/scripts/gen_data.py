@@ -12,7 +12,7 @@ from random import shuffle
 def gen_Carina(params):
 	data = []
 	
-	vectors = np.loadtxt('/home/angeliki/Documents/projects/git/pragmatics/DATA/visAttCarina/raw/vectors.txt',dtype=int)
+	vectors = np.loadtxt('/home/angeliki/Documents/projects/git/PRAGMATICS/DATA/visAttCarina/raw/vectors.txt',dtype=float)
 	
 	
 	n_concepts = vectors.shape[0]
@@ -22,10 +22,11 @@ def gen_Carina(params):
 
 	#generate all possible combinations of concepts without repetition 
 	for v in list(combinations(range(n_concepts),params['images'])):	
-		a = vectors[v[0]]
-		b = vectors[v[1]]
-		#XOR solution
-		c = a^b
+		a = copy.copy(vectors[v[0]])
+		b = copy.copy(vectors[v[1]])
+		#XOR solution is handcoded layer
+		#c = a^b
+		c = np.zeros(vocab_size)
 		#append data, solution and concepts
 		data.append((a,b,c,v[0],v[1]))
 
@@ -44,6 +45,25 @@ def gen_Carina(params):
     		b = el[0]
 		c = el[1]
 		v = el[2]
+		#convert XOR 0/1 to XOR -1/1
+		for j in range(vocab_size):
+			if b[j] == 1:
+				b[j] = random.uniform(0,1)
+				if c[j] == 1:
+					c[j] = random.uniform(0,1)
+					v[j] = 1
+				else:
+					c[j] = random.uniform(-1,0)
+					v[j] = -1
+			else:
+				b[j] = random.uniform(-1,0)
+				if c[j] == 1:
+                                        c[j] = random.uniform(0,1)
+                                        v[j] = -1
+                                else:
+                                        c[j] = random.uniform(-1,0)
+                                        v[j] = 1
+		print b[:3],c[:3],v[:3]
 		# write t
 		dset[i] = np.array([b,c])
 		labels[i] = v 

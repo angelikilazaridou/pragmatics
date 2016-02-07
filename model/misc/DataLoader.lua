@@ -22,9 +22,13 @@ function DataLoader:__init(opt)
   	assert(#images_size == 3, '/images should be a 3D tensor')
   	assert(images_size[2] == 2, 'There should be two images per training element')
   	self.num_images = images_size[1]
+	if opt.feat_size == -1 then
+		self.feat_size = images_size[3]
+	else
+		self.feat_size = opt.feat_size
+	end
   	self.num_pairs = images_size[2]
-  	self.feat_size = images_size[3]
-  	print(string.format('read %d images of size %dx%d', self.num_images, self.num_pairs, self.feat_size))
+    	print(string.format('read %d images of size %dx%d', self.num_images, self.num_pairs, self.feat_size))
 
   
   	-- separate out indexes for each of the provided splits
@@ -81,11 +85,11 @@ function DataLoader:getBatch(opt)
   	-- pick an index of the datapoint to load next
   	local img_batch = {} --torch.Tensor(batch_size, mem_size, self.feat_size)
   	--initialize one table elements per game size
-  	for i=1,self.game_size do
-    		table.insert(img_batch, torch.FloatTensor(batch_size,  self.feat_size))
+  	for i=1,feat_size do
+    		table.insert(img_batch, torch.FloatTensor(batch_size,  self.game_size))
   	end
 	--the labels per gane
-	local label_batch = torch.LongTensor(batch_size)
+	local label_batch = torch.FloatTensor(batch_size, feat_size)
 
 	local max_index = #split_ix
 	local wrapped = false
@@ -101,16 +105,16 @@ function DataLoader:getBatch(opt)
     		assert(ix ~= nil, 'bug: split ' .. split .. ' was accessed out of bounds with ' .. ri)
 
 		--image representations
-		for ii=1,self.game_size do
+		for ii=1,feat_size do
     			-- fetch the image from h5
-    			local img = self.h5_file:read('/images'):partial({ix,ix},{ii,ii},{1,feat_size})
+    			local img = self.h5_file:read('/images'):partial({ix,ix},{1,2},{ii,ii})
     			img_batch[ii][i] = img
 		end
      
 		--labels
-		seq = torch.LongTensor(1)
-		seq = self.h5_file:read('/labels'):partial({ix,ix},{1,1}) 
-    		label_batch[{ {i} }] = seq
+		seq = torch.FloatTensor(feat_size)
+		seq = self.h5_file:read('/labels'):partial({ix,ix},{1,feat_size}) 
+    		label_batch[{ {i,i} }] = seq
 
     		-- and record associated info as well
     		local info_struct = {}
@@ -118,25 +122,8 @@ function DataLoader:getBatch(opt)
     		table.insert(infos, info_struct)
   	end
 
-  	local data = {}
   	data.images = img_batch
-
-	--change format based on criterion
-	local temp_labels 
- 	if self.label_format == 'NLL' then
-		temp_labels = label_batch   
-	elseif self.label_format == 'MSE' then
-		temp_labels = torch.FloatTensor(batch_size, self.vocab_size):zero()
-		for i=1,label_batch:size(1) do
-			local label = label_batch[i]
-			temp_labels[i][label] = 1
-		end
-	else
-		print(string.format('Format does not exist: %s',self.label_format))
-	end
-
-	
-	data.labels = temp_labels:contiguous() -- note: make label sequences go down as columns
+	data.labels = label_batch:contiguous() -- note: make label sequences go down as columns
 	data.bounds = {it_pos_now = self.iterators[split], it_max = #split_ix, wrapped = wrapped}
   	data.infos = infos
   	return data

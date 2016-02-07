@@ -5,8 +5,6 @@ require 'nngraph'
 local utils = require 'misc.utils'
 require 'misc.DataLoader'
 require 'misc.optim_updates'
-local XOR1 = require 'models.XOR1'
-local XOR2 = require 'models.XOR2'
 local XOR3 = require 'models.XOR3'
 -------------------------------------------------------------------------------
 -- Input arguments and options
@@ -18,10 +16,11 @@ cmd:text()
 cmd:text('Options')
 
 -- Data input settings
-cmd:option('-input_h5','../DATA/XOR/data.h5','path to the h5file containing the preprocessed dataset')
-cmd:option('-input_json','../DATA/XOR/data.json','path to the json file containing additional info and vocab')
+cmd:option('-input_h5','/home/angeliki/Documents/projects/git/PRAGMATICS/DATA/visAttCarina/processed/data.h5','path to the h5file containing the preprocessed dataset')
+cmd:option('-input_json','/home/angeliki/Documents/projects/git/PRAGMATICS/DATA/visAttCarina/processed/data.json','path to the json file containing additional info and vocab')
+cmd:option('-feat_size',-1,'The number of image features')
 -- Select model
-cmd:option('-model','XOR2','What model to use')
+cmd:option('-model','XOR3','What model to use')
 cmd:option('-crit','MSE','What criterion to use')
 -- Optimization: General
 cmd:option('-max_iters', -1, 'max number of iterations to run for (-1 = run forever)')
@@ -66,7 +65,7 @@ end
 -------------------------------------------------------------------------------
 -- Create the Data Loader instance
 -------------------------------------------------------------------------------
-local loader = DataLoader{h5_file = opt.input_h5, json_file = opt.input_json, label_format = opt.crit}
+local loader = DataLoader{h5_file = opt.input_h5, json_file = opt.input_json, label_format = opt.crit, feat_size = opt.feat_size}
 local game_size = loader:getGameSize()
 local feat_size = loader:getFeatSize()
 local vocab_size = loader:getVocabSize()
@@ -76,24 +75,16 @@ local vocab_size = loader:getVocabSize()
 -- Initialize the networks
 -------------------------------------------------------------------------------
 local protos = {}
-local to_share = 0
+local to_share = 1
 
 -- create protos from scratch
-if opt.model == 'XOR1' then
+if opt.model == 'XOR3' then
 	print(string.format('Parameters are game_size=%d feat_size=%d, to_share=%d\n',game_size, feat_size,to_share))
-	protos.xor = XOR1.xor(game_size, feat_size, to_share)
-elseif opt.model == 'XOR2' then
-	print(string.format('Parameters are game_size=%d feat_size=%d, to_share=%d\n',game_size, feat_size,to_share))
-        protos.xor = XOR2.xor(game_size, feat_size)
-else
-	print(string.format('Parameters are game_size=%d feat_size=%d, to_share=%d\n',game_size, feat_size,to_share))
-        protos.xor = XOR3.xor(game_size, feat_size)
+        protos.xor = XOR3.xor(game_size, feat_size, to_share)
 end
 
 --add criterion
-if opt.crit == 'NLL' then
-	protos.criterion = nn.ClassNLLCriterion()
-elseif opt.crit == 'MSE' then
+if opt.crit == 'MSE' then
 	protos.criterion = nn.MSECriterion()
 else
 	print('Wrong criterion')
@@ -142,22 +133,24 @@ local function eval_split(split, evalopt)
     		loss_sum = loss_sum + loss
     		loss_evals = loss_evals + 1
 
-		local _,predicted = torch.max(logprobs,2)
-        	local gold
-        	if opt.crit == 'MSE' then
-                	_,gold = torch.max(data.labels,2)
-        	elseif opt.crit == 'NLL' then
-                	-- add a dummy dimension 
-                	gold = data.labels:view(1,data.labels:size(1)):t()
-        	else
-                	print(string.format('Wrong criterion: %s',opt.crit))
-        	end
-        	for i=1,predicted:size(1) do
-                	if predicted[{i,1}] == gold[{i,1}] then
-                        	 correct = correct +1
+		--compute accuracy
+		local logprobs2 = logprobs:clone()
+
+        	for i=1,logprobs2:size(1) do
+                	for j=1,logprobs2:size(2) do
+                        	if logprobs2[i][j]>0 then
+                                	logprobs2[i][j] = 1
+                        	else
+                                	logprobs2[i][j] = -1
+                        	end
+
                 	end
-                	all = all+1
+                	if torch.all(torch.eq(logprobs2[i], data.labels[i])) then
+                        	correct = correct +1
+                	end
+               		all = all+1
         	end
+
 	
     		-- if we wrapped around the split or used up val imgs budget then bail
     		local ix0 = data.bounds.it_pos_now
@@ -199,26 +192,24 @@ local function lossFun()
   	-- forward the language model criterion
   	local loss = protos.criterion:forward(logprobs, data.labels)
 
-
-	--compute accuracy
-	local _,predicted = torch.max(logprobs,2)
-	local gold
-	if opt.crit == 'MSE' then
-		_,gold = torch.max(data.labels,2)
-	elseif opt.crit == 'NLL' then
-		-- add a dummy dimension 
-		gold = data.labels:view(1,data.labels:size(1)):t()
-	else
-		print(string.format('Wrong criterion: %s',opt.crit))
-        end
-	for i=1,predicted:size(1) do
-		if predicted[{i,1}] == gold[{i,1}] then
-                       	 correct = correct +1
-                end
-                all = all+1
-        end
-  
-  	-----------------------------------------------------------------------------
+	local logprobs2 = logprobs:clone()
+	
+	for i=1,logprobs2:size(1) do
+		for j=1,logprobs2:size(2) do
+			if logprobs2[i][j]>0 then
+				logprobs2[i][j] = 1
+			else
+				logprobs2[i][j] = -1
+			end
+			
+		end
+		if torch.all(torch.eq(logprobs2[i], data.labels[i])) then
+			correct = correct +1
+		end
+		all = all+1
+	end
+	--print(data.labels)
+	-----------------------------------------------------------------------------
   	-- Backward pass
   	-----------------------------------------------------------------------------
   	-- backprop criterion
