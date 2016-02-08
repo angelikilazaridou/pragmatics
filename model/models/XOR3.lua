@@ -3,7 +3,7 @@ require 'nngraph'
 require 'misc.Peek'
 
 local XOR3 = {}
-function XOR3.xor(game_size, feat_size, vocab_size, hidden_size, share, gpu)
+function XOR3.xor(game_size, feat_size, vocab_size, hidden_size, share, gpu, k)
 
 
 	local shareList = {}
@@ -32,7 +32,7 @@ function XOR3.xor(game_size, feat_size, vocab_size, hidden_size, share, gpu)
 		local images = nn.Select(3,i)(properties_3d)
 		local L1 = nn.Linear(game_size,hidden_size)(images)
 		table.insert(shareList[2],L1)
-		table.insert(all_L1,nn.Sigmoid()(L1))
+		table.insert(all_L1,nn.Sigmoid()(nn.MulConstant(1)(L1)))
 	end
 	
 	--take discriminativeness of feature	
@@ -40,7 +40,7 @@ function XOR3.xor(game_size, feat_size, vocab_size, hidden_size, share, gpu)
 	local all_L2 = {}
 	for i=1,vocab_size do
 		local L2 = nn.Linear(hidden_size,1)(all_L1[i])
-		table.insert(all_L2,L2)
+		table.insert(all_L2,nn.Sigmoid()(nn.MulConstant(k)(L2)))
 		table.insert(shareList[3],L2)
 	end
 	

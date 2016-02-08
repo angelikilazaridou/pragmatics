@@ -26,6 +26,7 @@ cmd:option('-vocab_size',-1,'The number of properties')
 cmd:option('-model','XOR3','What model to use')
 cmd:option('-crit','MSE','What criterion to use')
 cmd:option('-hidden_size',20,'The hidden size of the discriminative layer')
+cmd:option('-k',1,'The slope of sigmoid')
 -- Optimization: General
 cmd:option('-max_iters', -1, 'max number of iterations to run for (-1 = run forever)')
 cmd:option('-batch_size',16,'what is the batch size in number of images per batch? (there will be x seq_per_img sentences)')
@@ -85,10 +86,10 @@ local to_share = 1
 -- create protos from scratch
 if opt.model == 'XOR3' then
 	print(string.format('Parameters are game_size=%d feat_size=%d, vocab_size=%d,to_share=%d\n',game_size, feat_size,vocab_size,to_share))
-        protos.xor = XOR3.xor(game_size, feat_size, vocab_size, opt.hidden_size, to_share, opt.gpuid)
+        protos.xor = XOR3.xor(game_size, feat_size, vocab_size, opt.hidden_size, to_share, opt.gpuid, opt.k)
 elseif opt.model == 'XOR4' then
         print(string.format('Parameters are game_size=%d feat_size=%d, vocab_size=%d,to_share=%d\n',game_size, feat_size,vocab_size,to_share))
-        protos.xor = XOR4.xor(game_size, feat_size, vocab_size, opt.hidden_size, to_share, opt.gpuid)
+        protos.xor = XOR4.xor(game_size, feat_size, vocab_size, opt.hidden_size, to_share, opt.gpuid, opt.k)
 else
 	print('Wrong model')
 end
@@ -162,7 +163,8 @@ local function eval_split(split, evalopt)
                 	end
                		all = all+1
         	end
-
+		--print(logprobs)
+		--print(data.labels)
 	
     		-- if we wrapped around the split or used up val imgs budget then bail
     		local ix0 = data.bounds.it_pos_now
@@ -220,7 +222,6 @@ local function lossFun()
 		end
 		all = all+1
 	end
-	--print(data.labels)
 	-----------------------------------------------------------------------------
   	-- Backward pass
   	-----------------------------------------------------------------------------
