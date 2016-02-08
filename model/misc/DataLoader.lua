@@ -88,11 +88,11 @@ function DataLoader:getBatch(opt)
   	-- pick an index of the datapoint to load next
   	local img_batch = {} --torch.Tensor(batch_size, mem_size, self.feat_size)
   	--initialize one table elements per game size
-  	for i=1,self.feat_size do
+  	for i=1,self.game_size do
 		if self.gpu<0 then
-    			table.insert(img_batch, torch.FloatTensor(batch_size,  self.game_size))
+    			table.insert(img_batch, torch.FloatTensor(batch_size,  self.feat_size))
 		else
-			table.insert(img_batch, torch.CudaTensor(batch_size,  self.game_size))
+			table.insert(img_batch, torch.CudaTensor(batch_size,  self.feat_size))
 		end
   	end
 
@@ -119,9 +119,9 @@ function DataLoader:getBatch(opt)
     		assert(ix ~= nil, 'bug: split ' .. split .. ' was accessed out of bounds with ' .. ri)
 
 		--image representations
-		for ii=1,self.feat_size do
+		for ii=1,self.game_size do
     			-- fetch the image from h5
-    			local img = self.h5_file:read('/images'):partial({ix,ix},{1,2},{ii,ii})
+    			local img = self.h5_file:read('/images'):partial({ix,ix},{ii,ii},{1,self.feat_size})
     			img_batch[ii][i] = img
 		end
      

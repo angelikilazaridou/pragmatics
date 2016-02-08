@@ -6,6 +6,8 @@ local utils = require 'misc.utils'
 require 'misc.DataLoader'
 require 'misc.optim_updates'
 local XOR3 = require 'models.XOR3'
+local XOR4 = require 'models.XOR4'
+
 -------------------------------------------------------------------------------
 -- Input arguments and options
 -------------------------------------------------------------------------------
@@ -16,13 +18,14 @@ cmd:text()
 cmd:text('Options')
 
 -- Data input settings
-cmd:option('-input_h5','../DATA/visAttCarina/processed/binary/data.h5','path to the h5file containing the preprocessed dataset')
-cmd:option('-input_json','..//DATA/visAttCarina/processed/binary/data.json','path to the json file containing additional info and vocab')
+cmd:option('-input_h5','../DATA/visAttCarina/processed/vis_vecs/data.h5','path to the h5file containing the preprocessed dataset')
+cmd:option('-input_json','..//DATA/visAttCarina/processed/vis_vecs/data.json','path to the json file containing additional info and vocab')
 cmd:option('-feat_size',-1,'The number of image features')
 cmd:option('-vocab_size',-1,'The number of properties')
 -- Select model
 cmd:option('-model','XOR3','What model to use')
 cmd:option('-crit','MSE','What criterion to use')
+cmd:option('-hidden_size',20,'The hidden size of the discriminative layer')
 -- Optimization: General
 cmd:option('-max_iters', -1, 'max number of iterations to run for (-1 = run forever)')
 cmd:option('-batch_size',16,'what is the batch size in number of images per batch? (there will be x seq_per_img sentences)')
@@ -38,7 +41,7 @@ cmd:option('-optim_epsilon',1e-8,'epsilon that goes into denominator for smoothi
 
 -- Evaluation/Checkpointing
 cmd:option('-val_images_use', 3200, 'how many images to use when periodically evaluating the validation loss? (-1 = all)')
-cmd:option('-save_checkpoint_every', 2500, 'how often to save a model checkpoint?')
+cmd:option('-save_checkpoint_every', 1000, 'how often to save a model checkpoint?')
 cmd:option('-checkpoint_path', '', 'folder to save checkpoints into (empty = this folder)')
 cmd:option('-losses_log_every', 25, 'How often do we snapshot losses, for inclusion in the progress dump? (0 = disable)')
 
@@ -46,6 +49,7 @@ cmd:option('-losses_log_every', 25, 'How often do we snapshot losses, for inclus
 cmd:option('-id', '', 'an id identifying this run/job. used in cross-val and appended when writing progress files')
 cmd:option('-seed', 123, 'random number generator seed to use')
 cmd:option('-gpuid', -1, 'which gpu to use. -1 = use CPU')
+cmd:option('-verbose',false,'How much info to give')
 
 cmd:text()
 
@@ -80,20 +84,28 @@ local to_share = 1
 
 -- create protos from scratch
 if opt.model == 'XOR3' then
-	print(string.format('Parameters are game_size=%d feat_size=%d, to_share=%d\n',game_size, feat_size,to_share))
-        protos.xor = XOR3.xor(game_size, feat_size, to_share)
+	print(string.format('Parameters are game_size=%d feat_size=%d, vocab_size=%d,to_share=%d\n',game_size, feat_size,vocab_size,to_share))
+        protos.xor = XOR3.xor(game_size, feat_size, vocab_size, opt.hidden_size, to_share, opt.gpuid)
+elseif opt.model == 'XOR4' then
+        print(string.format('Parameters are game_size=%d feat_size=%d, vocab_size=%d,to_share=%d\n',game_size, feat_size,vocab_size,to_share))
+        protos.xor = XOR4.xor(game_size, feat_size, vocab_size, opt.hidden_size, to_share, opt.gpuid)
+else
+	print('Wrong model')
 end
 
 --add criterion
 if opt.crit == 'MSE' then
 	protos.criterion = nn.MSECriterion()
-else
+elseif opt.crit == 'BCE' then
+	protos.criterion = nn.BCECriterion()
+else	
 	print('Wrong criterion')
 end
 
 -- ship everything to GPU, maybe
 if opt.gpuid >= 0 then
-  	for k,v in pairs(protos) do v:cuda() end
+	protos.criterion:cuda()
+  	--for k,v in pairs(protos) do v:cuda() end
 end
 
 -- flatten and prepare all model parameters to a single vector. 
@@ -138,10 +150,10 @@ local function eval_split(split, evalopt)
 
         	for i=1,logprobs2:size(1) do
                 	for j=1,logprobs2:size(2) do
-                        	if logprobs2[i][j]>0 then
+                        	if logprobs2[i][j]>=0.5 then
                                 	logprobs2[i][j] = 1
                         	else
-                                	logprobs2[i][j] = -1
+                                	logprobs2[i][j] = 0
                         	end
 
                 	end
@@ -196,10 +208,10 @@ local function lossFun()
 	
 	for i=1,logprobs2:size(1) do
 		for j=1,logprobs2:size(2) do
-			if logprobs2[i][j]>0 then
+			if logprobs2[i][j]>=0.5 then
 				logprobs2[i][j] = 1
 			else
-				logprobs2[i][j] = -1
+				logprobs2[i][j] = 0
 			end
 			
 		end
@@ -244,13 +256,13 @@ while true do
   	-- eval loss/gradient
   	local losses, acc = lossFun()
   	if iter % opt.losses_log_every == 0 then loss_history[iter] = losses end
-  	print(string.format('iter %d: %f %f', iter, losses,acc))
+  	--print(string.format('iter %d: %f %f', iter, losses,acc))
 
   	-- save checkpoint once in a while (or on final iteration)
   	if (iter % opt.save_checkpoint_every == 0 or iter == opt.max_iters) then
 
     		-- evaluate the validation performance
-    		local val_loss = eval_split('val', {val_images_use = opt.val_images_use})
+    		local val_loss = eval_split('val', {val_images_use = opt.val_images_use, verbose=opt.verbose})
     		print('validation loss: ', val_loss)
     		val_loss_history[iter] = val_loss
 

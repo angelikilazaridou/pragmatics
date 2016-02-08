@@ -68,11 +68,10 @@ def gen_Carina_vis_vecs(params):
                 b = el[0]
                 c = el[1]
                 v = el[2]
-                #convert XOR 0/1 to XOR -1/1
-                for j in range(vocab_size):
+		#convert XOR 0/1 to XOR -1/1
+		for j in range(vocab_size):
                         if v[j] == 0:
 				v[j] = -1
-		
                 # write t
                 dset[i] = np.array([b,c])
                 labels[i] = v
