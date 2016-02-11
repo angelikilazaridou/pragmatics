@@ -33,7 +33,7 @@ cmd:option('-batch_size',16,'what is the batch size in number of images per batc
 cmd:option('-grad_clip',0.1,'clip gradients at this value (note should be lower than usual 5 because we normalize grads by both batch and seq_length)')
 -- Optimization: for the model
 cmd:option('-optim','adam','what update to use? rmsprop|sgd|sgdmom|adagrad|adam')
-cmd:option('-learning_rate',4e-4,'learning rate')
+cmd:option('-learning_rate',0.001,'learning rate')
 cmd:option('-learning_rate_decay_start', -1, 'at what iteration to start decaying learning rate? (-1 = dont)')
 cmd:option('-learning_rate_decay_every', 500, 'every how many iterations thereafter to drop LR by half?')
 cmd:option('-optim_alpha',0.8,'alpha for adagrad/rmsprop/momentum/adam')
@@ -49,7 +49,7 @@ cmd:option('-losses_log_every', 25, 'How often do we snapshot losses, for inclus
 -- misc
 cmd:option('-id', '', 'an id identifying this run/job. used in cross-val and appended when writing progress files')
 cmd:option('-seed', 123, 'random number generator seed to use')
-cmd:option('-gpuid', -1, 'which gpu to use. -1 = use CPU')
+cmd:option('-gpuid', 0, 'which gpu to use. -1 = use CPU')
 cmd:option('-verbose',false,'How much info to give')
 
 cmd:text()
@@ -132,6 +132,8 @@ local function eval_split(split, evalopt)
   	local loss_evals = 0
   	local predictions = {}
   	local correct = 0
+	local p_correct = 0
+	local p_all = 0
 	local all = 0
 	while true do
 
@@ -139,8 +141,9 @@ local function eval_split(split, evalopt)
     		local data = loader:getBatch{batch_size = opt.batch_size, split = split}
 
     		-- forward the model to get loss
-    		local logprobs = protos.xor:forward({unpack(data.images)})
-		
+    		local outputs = protos.xor:forward({unpack(data.images)})
+		local logprobs = outputs[1]
+
     		local loss = protos.criterion:forward(logprobs, data.labels)
 		
     		loss_sum = loss_sum + loss
@@ -148,23 +151,31 @@ local function eval_split(split, evalopt)
 
 		--compute accuracy
 		local logprobs2 = logprobs:clone()
+		logprobs2:apply(function(x) if x>0.5 then return 1 else return 0 end end)
+		
+		--get in a tensor the properties
+		local properties = {unpack(outputs,2)}
+		--print(properties)
 
-        	for i=1,logprobs2:size(1) do
-                	for j=1,logprobs2:size(2) do
-                        	if logprobs2[i][j]>=0.5 then
-                                	logprobs2[i][j] = 1
-                        	else
-                                	logprobs2[i][j] = 0
-                        	end
-
-                	end
+		--print(data.properties)
+        	for i=1,opt.batch_size do
+			--check if prediction of discriminativeness if correct
                 	if torch.all(torch.eq(logprobs2[i], data.labels[i])) then
                         	correct = correct +1
                 	end
-               		all = all+1
-        	end
-		--print(logprobs)
-		--print(data.labels)
+			for ii=1,game_size do
+				local s1 = properties[ii][{{i,i},{1,vocab_size}}]:clone():apply(function(x) if x>0 then return 0 else return 1 end end)
+				local s2 = data.properties[{{i,i},{ii,ii},{1,vocab_size}}]
+				if torch.all(torch.eq(s1,s2)) then
+					p_correct = p_correct+1
+					if not torch.all(torch.eq(s1:fill(0),s2)) then
+						print(s2)
+					end
+				end
+				p_all = p_all+1
+			end
+			all = all+1
+		end
 	
     		-- if we wrapped around the split or used up val imgs budget then bail
     		local ix0 = data.bounds.it_pos_now
@@ -178,7 +189,7 @@ local function eval_split(split, evalopt)
     		if n >= val_images_use then break end -- we've used enough images
   	end
 
-	return correct/all
+	return correct/all, p_correct/p_all
 end
 
 -------------------------------------------------------------------------------
@@ -199,10 +210,18 @@ local function lossFun()
   
   	-- forward the model on images (most work happens here)
 	local inputs = {}
+	local dimages = {}
 	for i=1,#data.images do
+		if opt.gpuid >= 0 then  --gradients for things that we do not care, i.e., the property vectors
+			dimages[i+1] = torch.CudaTensor(opt.batch_size,vocab_size):fill(0)   
+		else
+			dimages[i+1] = torch.FloatTensor(opt.batch_size, vocab_size):fill(0)
+		end
 		table.insert(inputs,data.images[i])
 	end
-	local logprobs = protos.xor:forward(inputs)
+	--getting property vectoes and loss
+	local outputs = protos.xor:forward(inputs)
+	local logprobs = outputs[1]
   	-- forward the language model criterion
   	local loss = protos.criterion:forward(logprobs, data.labels)
 
@@ -229,7 +248,8 @@ local function lossFun()
   	local dlogprobs = protos.criterion:backward(logprobs, data.labels)
   	-- backprop language model
 	table.insert(inputs,data.labels)
-  	local dummy = unpack(protos.xor:backward(inputs, dlogprobs))
+	dimages[1] = dlogprobs
+  	local dummy = unpack(protos.xor:backward(inputs, dimages))
 
   	-- clip gradients
   	-- print(string.format('claming %f%% of gradients', 100*torch.mean(torch.gt(torch.abs(grad_params), opt.grad_clip))))
@@ -263,8 +283,8 @@ while true do
   	if (iter % opt.save_checkpoint_every == 0 or iter == opt.max_iters) then
 
     		-- evaluate the validation performance
-    		local val_loss = eval_split('val', {val_images_use = opt.val_images_use, verbose=opt.verbose})
-    		print('validation loss: ', val_loss)
+    		local val_loss, prop_loss = eval_split('val', {val_images_use = opt.val_images_use, verbose=opt.verbose})
+    		print(string.format('validation loss: %f    property_loss: %f', val_loss,prop_loss))
     		val_loss_history[iter] = val_loss
 
     		-- write a (thin) json report

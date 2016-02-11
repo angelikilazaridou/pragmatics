@@ -64,14 +64,17 @@ def gen_Carina_vis_vecs(params):
         f = h5py.File(output_h5, "w")
         dset = f.create_dataset("images", (n_imgs,2,feat_size), dtype='float32') # space for resized images
         labels = f.create_dataset("labels", (n_imgs,vocab_size),dtype='float32')
+	dset2 = f.create_dataset("properties",(n_concepts, vocab_size), dtype='float32')
         for i,el in enumerate(data):
                 b = el[0]
                 c = el[1]
                 v = el[2]
+		'''
 		#convert XOR 0/1 to XOR -1/1
 		for j in range(vocab_size):
                         if v[j] == 0:
 				v[j] = -1
+		'''
                 # write t
                 dset[i] = np.array([b,c])
                 labels[i] = v
@@ -81,8 +84,10 @@ def gen_Carina_vis_vecs(params):
                 img['concepts'] = (el[3]+1,el[4]+1) #so that to be able to do analysis
                 imgs.append(img)
 
-        f.close()
-
+       
+	for n in range(n_concepts):
+		dset2[n] = np.array(vectors[n])
+	f.close()
         #generate split
         assign_splits(imgs,params)
 

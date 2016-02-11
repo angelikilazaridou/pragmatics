@@ -98,11 +98,13 @@ function DataLoader:getBatch(opt)
 
 	--the labels per gane
 
-	local label_batch 
+	local label_batch, properties
 	if self.gpu<0 then
 		label_batch =  torch.FloatTensor(batch_size, self.vocab_size)
+		properties = torch.FloatTensor(batch_size, self.game_size, self.vocab_size)
 	else
 		label_batch = torch.CudaTensor(batch_size, self.vocab_size)
+		properties = torch.CudaTensor(batch_size, self.game_size, self.vocab_size)
 	end
 
 	local max_index = #split_ix
@@ -122,7 +124,12 @@ function DataLoader:getBatch(opt)
 		for ii=1,self.game_size do
     			-- fetch the image from h5
     			local img = self.h5_file:read('/images'):partial({ix,ix},{ii,ii},{1,self.feat_size})
+			local img_norm = torch.norm(img)
+	       		img = img/img_norm
     			img_batch[ii][i] = img
+			--fetch their properies
+			local inx = self.info.images[ix].concepts[ii]
+			properties[i][ii] = self.h5_file:read('properties'):partial({inx,inx},{1,self.vocab_size})
 		end
      
 		--labels
@@ -135,7 +142,7 @@ function DataLoader:getBatch(opt)
     		info_struct.id = self.info.images[ix].id
     		table.insert(infos, info_struct)
   	end
-
+	data.properties = properties
   	data.images = img_batch
 	data.labels = label_batch:contiguous() -- note: make label sequences go down as columns
 	data.bounds = {it_pos_now = self.iterators[split], it_max = #split_ix, wrapped = wrapped}

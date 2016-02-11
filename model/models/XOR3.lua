@@ -1,6 +1,7 @@
 require 'nn' 
 require 'nngraph'
 require 'misc.Peek'
+require 'misc.LinearNB'
 
 local XOR3 = {}
 function XOR3.xor(game_size, feat_size, vocab_size, hidden_size, share, gpu, k)
@@ -18,7 +19,8 @@ function XOR3.xor(game_size, feat_size, vocab_size, hidden_size, share, gpu, k)
 		--map images to some property space
 		local property_vec = nn.Linear(feat_size, vocab_size)(image)
 		table.insert(shareList[1],property_vec)
-		table.insert(all_prop_vecs,property_vec)
+		local p_t = property_vec
+		table.insert(all_prop_vecs,p_t)
 	end
 
 	-- convert to batch_size x (feat_size x 2) with JoinTable
@@ -32,7 +34,8 @@ function XOR3.xor(game_size, feat_size, vocab_size, hidden_size, share, gpu, k)
 		local images = nn.Select(3,i)(properties_3d)
 		local L1 = nn.Linear(game_size,hidden_size)(images)
 		table.insert(shareList[2],L1)
-		table.insert(all_L1,nn.Sigmoid()(nn.MulConstant(1)(L1)))
+		local L11 = nn.Sigmoid()(nn.MulConstant(1)(L1))
+		table.insert(all_L1,L11)
 	end
 	
 	--take discriminativeness of feature	
@@ -40,7 +43,8 @@ function XOR3.xor(game_size, feat_size, vocab_size, hidden_size, share, gpu, k)
 	local all_L2 = {}
 	for i=1,vocab_size do
 		local L2 = nn.Linear(hidden_size,1)(all_L1[i])
-		table.insert(all_L2,nn.Sigmoid()(nn.MulConstant(k)(L2)))
+		--table.insert(all_L2,nn.Sigmoid()(nn.MulConstant(k)(L2)))
+		table.insert(all_L2, L2)
 		table.insert(shareList[3],L2)
 	end
 	
@@ -51,6 +55,10 @@ function XOR3.xor(game_size, feat_size, vocab_size, hidden_size, share, gpu, k)
 
     	local outputs = {}
 	table.insert(outputs, result)
+	--insert all property vectors
+	for i=1,game_size do
+		table.insert(outputs,all_prop_vecs[i])
+	end
     	
 	local model = nn.gModule(inputs, outputs)
 
