@@ -5,9 +5,8 @@ require 'nngraph'
 local utils = require 'misc.utils'
 require 'misc.DataLoader'
 require 'misc.optim_updates'
-local XOR3 = require 'models.XOR3'
-local XOR4 = require 'models.XOR4'
-
+local model1 = require 'models.model1'
+local model1_fast = require 'models.model1_fast'
 -------------------------------------------------------------------------------
 -- Input arguments and options
 -------------------------------------------------------------------------------
@@ -23,7 +22,7 @@ cmd:option('-input_json','..//DATA/visAttCarina/processed/vis_vecs/data.json','p
 cmd:option('-feat_size',-1,'The number of image features')
 cmd:option('-vocab_size',-1,'The number of properties')
 -- Select model
-cmd:option('-model','XOR3','What model to use')
+cmd:option('-model','model1_fast','What model to use')
 cmd:option('-crit','MSE','What criterion to use')
 cmd:option('-hidden_size',20,'The hidden size of the discriminative layer')
 cmd:option('-k',1,'The slope of sigmoid')
@@ -78,40 +77,36 @@ local vocab_size = loader:getVocabSize()
 
 
 -------------------------------------------------------------------------------
--- Initialize the networks
+-- Initialize the network
 -------------------------------------------------------------------------------
 local protos = {}
 local to_share = 1
 
+print(string.format('Parameters are model=%s game_size=%d feat_size=%d, vocab_size=%d,to_share=%d\n',opt.model, game_size, feat_size,vocab_size,to_share))
 -- create protos from scratch
-if opt.model == 'XOR3' then
-	print(string.format('Parameters are game_size=%d feat_size=%d, vocab_size=%d,to_share=%d\n',game_size, feat_size,vocab_size,to_share))
-        protos.xor = XOR3.xor(game_size, feat_size, vocab_size, opt.hidden_size, to_share, opt.gpuid, opt.k)
-elseif opt.model == 'XOR4' then
-        print(string.format('Parameters are game_size=%d feat_size=%d, vocab_size=%d,to_share=%d\n',game_size, feat_size,vocab_size,to_share))
-        protos.xor = XOR4.xor(game_size, feat_size, vocab_size, opt.hidden_size, to_share, opt.gpuid, opt.k)
+if opt.model == 'model1_fast' then
+        protos.model = model1_fast.model(game_size, feat_size, vocab_size, opt.hidden_size, to_share, opt.gpuid, opt.k)
+elseif opt.model == 'model1' then
+        protos.model = model1.model(game_size, feat_size, vocab_size, opt.hidden_size, to_share, opt.gpuid, opt.k)
 else
-	print('Wrong model')
+	print(string.format('Wrong model:%s',opt.model))
 end
 
 --add criterion
 if opt.crit == 'MSE' then
 	protos.criterion = nn.MSECriterion()
-elseif opt.crit == 'BCE' then
-	protos.criterion = nn.BCECriterion()
 else	
-	print('Wrong criterion')
+	print(string.format('Wrong criterion: %s',opt.crit))
 end
 
--- ship everything to GPU, maybe
+-- ship criterion to GPU, model is shipped dome inside model
 if opt.gpuid >= 0 then
+	--model is shipped to cpu within the model
 	protos.criterion:cuda()
-  	--for k,v in pairs(protos) do v:cuda() end
 end
 
 -- flatten and prepare all model parameters to a single vector. 
--- Keep CNN params separate in case we want to try to get fancy with different optims on LM/CNN
-local params, grad_params = protos.xor:getParameters()
+local params, grad_params = protos.model:getParameters()
 print('total number of parameters in LM: ', params:nElement())
 assert(params:nElement() == grad_params:nElement())
 
@@ -125,7 +120,7 @@ local function eval_split(split, evalopt)
   	local verbose = utils.getopt(evalopt, 'verbose', true)
   	local val_images_use = utils.getopt(evalopt, 'val_images_use', true)
 
-  	protos.xor:evaluate()
+  	protos.model:evaluate()
   	loader:resetIterator(split) -- rewind iteator back to first datapoint in the split
   	local n = 0
   	local loss_sum = 0
@@ -141,17 +136,18 @@ local function eval_split(split, evalopt)
     		local data = loader:getBatch{batch_size = opt.batch_size, split = split}
 
     		-- forward the model to get loss
-    		local outputs = protos.xor:forward({unpack(data.images)})
-		local logprobs = outputs[1]
+    		local outputs = protos.model:forward({unpack(data.images)})
+		local predicted = outputs[1]
 
-    		local loss = protos.criterion:forward(logprobs, data.labels)
+    		local loss = protos.criterion:forward(predicted, data.labels)
 		
+		--average ;oss
     		loss_sum = loss_sum + loss
     		loss_evals = loss_evals + 1
 
 		--compute accuracy
-		local logprobs2 = logprobs:clone()
-		logprobs2:apply(function(x) if x>0.5 then return 1 else return 0 end end)
+		local predicted2 = predicted:clone()
+		predicted2:apply(function(x) if x>0.5 then return 1 else return 0 end end)
 		
 		--get in a tensor the properties
 		local properties = {unpack(outputs,2)}
@@ -160,17 +156,15 @@ local function eval_split(split, evalopt)
 		--print(data.properties)
         	for i=1,opt.batch_size do
 			--check if prediction of discriminativeness if correct
-                	if torch.all(torch.eq(logprobs2[i], data.labels[i])) then
+                	if torch.all(torch.eq(predicted2[i], data.labels[i])) then
                         	correct = correct +1
                 	end
+			--check if properties are correct
 			for ii=1,game_size do
 				local s1 = properties[ii][{{i,i},{1,vocab_size}}]:clone():apply(function(x) if x>0 then return 0 else return 1 end end)
 				local s2 = data.properties[{{i,i},{ii,ii},{1,vocab_size}}]
 				if torch.all(torch.eq(s1,s2)) then
 					p_correct = p_correct+1
-					if not torch.all(torch.eq(s1:fill(0),s2)) then
-						print(s2)
-					end
 				end
 				p_all = p_all+1
 			end
@@ -197,11 +191,9 @@ end
 -------------------------------------------------------------------------------
 local iter = 0
 local function lossFun()
-	protos.xor:training()
+	protos.model:training()
   	grad_params:zero()
 
-	local all = 0
-	local correct =0
   	-----------------------------------------------------------------------------
   	-- Forward pass
   	-----------------------------------------------------------------------------
@@ -210,46 +202,31 @@ local function lossFun()
   
   	-- forward the model on images (most work happens here)
 	local inputs = {}
-	local dimages = {}
+	local dinputs = {}
+
 	for i=1,#data.images do
 		if opt.gpuid >= 0 then  --gradients for things that we do not care, i.e., the property vectors
-			dimages[i+1] = torch.CudaTensor(opt.batch_size,vocab_size):fill(0)   
+			dinputs[i+1] = torch.CudaTensor(opt.batch_size,vocab_size):fill(0)   
 		else
-			dimages[i+1] = torch.FloatTensor(opt.batch_size, vocab_size):fill(0)
+			dinputs[i+1] = torch.FloatTensor(opt.batch_size, vocab_size):fill(0)
 		end
 		table.insert(inputs,data.images[i])
 	end
 	--getting property vectoes and loss
-	local outputs = protos.xor:forward(inputs)
-	local logprobs = outputs[1]
+	local outputs = protos.model:forward(inputs)
+	local predicted = outputs[1]
   	-- forward the language model criterion
-  	local loss = protos.criterion:forward(logprobs, data.labels)
+  	local loss = protos.criterion:forward(predicted, data.labels)
 
-	local logprobs2 = logprobs:clone()
-	
-	for i=1,logprobs2:size(1) do
-		for j=1,logprobs2:size(2) do
-			if logprobs2[i][j]>=0.5 then
-				logprobs2[i][j] = 1
-			else
-				logprobs2[i][j] = 0
-			end
-			
-		end
-		if torch.all(torch.eq(logprobs2[i], data.labels[i])) then
-			correct = correct +1
-		end
-		all = all+1
-	end
 	-----------------------------------------------------------------------------
   	-- Backward pass
   	-----------------------------------------------------------------------------
   	-- backprop criterion
-  	local dlogprobs = protos.criterion:backward(logprobs, data.labels)
+  	local dpredicted = protos.criterion:backward(predicted, data.labels)
   	-- backprop language model
 	table.insert(inputs,data.labels)
-	dimages[1] = dlogprobs
-  	local dummy = unpack(protos.xor:backward(inputs, dimages))
+	dinputs[1] = dpredicted
+  	local dummy = unpack(protos.model:backward(inputs, dinputs))
 
   	-- clip gradients
   	-- print(string.format('claming %f%% of gradients', 100*torch.mean(torch.gt(torch.abs(grad_params), opt.grad_clip))))
@@ -257,7 +234,7 @@ local function lossFun()
 
 
   	-- and lets get out!
-  	return loss,correct/all
+  	return loss
 end
 
 -------------------------------------------------------------------------------
@@ -283,8 +260,8 @@ while true do
   	if (iter % opt.save_checkpoint_every == 0 or iter == opt.max_iters) then
 
     		-- evaluate the validation performance
-    		local val_loss, prop_loss = eval_split('val', {val_images_use = opt.val_images_use, verbose=opt.verbose})
-    		print(string.format('validation loss: %f    property_loss: %f', val_loss,prop_loss))
+    		local val_loss, prop_acc = eval_split('val', {val_images_use = opt.val_images_use, verbose=opt.verbose})
+    		print(string.format('validation loss: %f    property_loss: %f', val_loss,prop_acc))
     		val_loss_history[iter] = val_loss
 
     		-- write a (thin) json report
@@ -299,14 +276,14 @@ while true do
     		print('wrote json checkpoint to ' .. checkpoint_path .. '.json')
 
     		-- write the full model checkpoint as well if we did better than ever
-    		local current_score
+    		local current_score = prop_loss
     
 		if best_score == nil or current_score > best_score then
       			best_score = current_score
       			if iter > 0 then -- dont save on very first iteration
         			-- include the protos (which have weights) and save to file
         			local save_protos = {}
-        			save_protos.xor = protos.xor -- these are shared clones, and point to correct param storage
+        			save_protos.model = protos.model -- these are shared clones, and point to correct param storage
         			checkpoint.protos = save_protos
         			-- also include the vocabulary mapping so that we can use the checkpoint 
         			-- alone to run on arbitrary images without the data loader
@@ -316,7 +293,7 @@ while true do
     		end
 	end
 
-  	-- decay the learning rate for both LM and CNN
+  	-- decay the learning rate
   	local learning_rate = opt.learning_rate
   	if iter > opt.learning_rate_decay_start and opt.learning_rate_decay_start >= 0 then
     		local frac = (iter - opt.learning_rate_decay_start) / opt.learning_rate_decay_every

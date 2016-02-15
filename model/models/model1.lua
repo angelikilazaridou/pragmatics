@@ -1,9 +1,10 @@
 require 'nn' 
 require 'nngraph'
 require 'misc.Peek'
+require 'misc.LinearNB'
 
-local XOR3 = {}
-function XOR3.xor(game_size, feat_size, vocab_size, hidden_size, share, gpu, k)
+local model1 = {}
+function model1.model(game_size, feat_size, vocab_size, hidden_size, share, gpu, k)
 
 
 	local shareList = {}
@@ -11,23 +12,21 @@ function XOR3.xor(game_size, feat_size, vocab_size, hidden_size, share, gpu, k)
 	local inputs = {}
 	local all_prop_vecs = {}
 	shareList[1] = {} --share mapping to property space
-	shareList[4] = {}
+
 	for i=1,game_size do
 		local image = nn.Identity()() --insert one image at a time
 		table.insert(inputs, image)
 		--map images to some property space
-		local p = nn.Linear(feat_size, hidden_size)(image)
-		local p2 = nn.Sigmoid()(p)
-		local property_vec = nn.Linear(hidden_size, vocab_size)(p)
-		table.insert(shareList[1],p)
-		table.insert(shareList[4],property_vec)
-		table.insert(all_prop_vecs,property_vec)
+		local property_vec = nn.Linear(feat_size, vocab_size)(image)
+		table.insert(shareList[1],property_vec)
+		local p_t = property_vec
+		table.insert(all_prop_vecs,p_t)
 	end
 
 	-- convert to batch_size x (feat_size x 2) with JoinTable
-	-- OLD: nn.Transpose({2,3})(nn.View(2,-1):setNumInputDims(2)(nn.View(2,-1):setNumInputDims(1)(nn.JoinTable(2)(properties))))
 	-- Then convert to 3d -> batch_size x 2 x feat_size
 	local properties_3d = nn.View(2,-1):setNumInputDims(2)(nn.View(2,-1):setNumInputDims(1)(nn.JoinTable(2)(all_prop_vecs)))
+
 	--then start selecting per property, map and add into a table
 	shareList[2] = {}
 	local all_L1 = {}
@@ -35,7 +34,8 @@ function XOR3.xor(game_size, feat_size, vocab_size, hidden_size, share, gpu, k)
 		local images = nn.Select(3,i)(properties_3d)
 		local L1 = nn.Linear(game_size,hidden_size)(images)
 		table.insert(shareList[2],L1)
-		table.insert(all_L1,nn.Sigmoid()(nn.MulConstant(1)(L1)))
+		local L11 = nn.Sigmoid()(nn.MulConstant(1)(L1))
+		table.insert(all_L1,L11)
 	end
 	
 	--take discriminativeness of feature	
@@ -43,17 +43,19 @@ function XOR3.xor(game_size, feat_size, vocab_size, hidden_size, share, gpu, k)
 	local all_L2 = {}
 	for i=1,vocab_size do
 		local L2 = nn.Linear(hidden_size,1)(all_L1[i])
-		table.insert(all_L2,nn.Sigmoid()(nn.MulConstant(k)(L2)))
+		--table.insert(all_L2,nn.Sigmoid()(nn.MulConstant(k)(L2)))
+		table.insert(all_L2, L2)
 		table.insert(shareList[3],L2)
 	end
 	
 
 
-	--convert to soft-max
+	--reshape to batch_size x vocab_size
 	local result = nn.JoinTable(2)(all_L2)
 
     	local outputs = {}
 	table.insert(outputs, result)
+
 	--insert all property vectors
 	for i=1,game_size do
 		table.insert(outputs,all_prop_vecs[i])
@@ -76,4 +78,4 @@ function XOR3.xor(game_size, feat_size, vocab_size, hidden_size, share, gpu, k)
 	return model
 end
 
-return XOR3
+return model1
