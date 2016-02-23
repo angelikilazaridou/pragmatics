@@ -3,8 +3,8 @@ require 'nngraph'
 require 'misc.Peek'
 require 'misc.LinearNB'
 
-local XOR3 = {}
-function XOR3.xor(game_size, feat_size, vocab_size, hidden_size, share, gpu, k)
+local model_fast_NB = {}
+function model_fast_NB.model(game_size, feat_size, vocab_size, hidden_size, share, gpu, k)
 
 
 	local shareList = {}
@@ -17,41 +17,30 @@ function XOR3.xor(game_size, feat_size, vocab_size, hidden_size, share, gpu, k)
 		local image = nn.Identity()() --insert one image at a time
 		table.insert(inputs, image)
 		--map images to some property space
-		local property_vec = nn.Linear(feat_size, vocab_size)(image)
+		local property_vec = nn.LinearNB(feat_size, vocab_size)(image)
 		table.insert(shareList[1],property_vec)
+
 		local p_t = property_vec
+		
 		table.insert(all_prop_vecs,p_t)
+
 	end
 
-	-- convert to batch_size x (feat_size x 2) with JoinTable
-	-- OLD: nn.Transpose({2,3})(nn.View(2,-1):setNumInputDims(2)(nn.View(2,-1):setNumInputDims(1)(nn.JoinTable(2)(properties))))
 	-- Then convert to 3d -> batch_size x 2 x feat_size
-	local properties_3d = nn.View(2,-1):setNumInputDims(2)(nn.View(2,-1):setNumInputDims(1)(nn.JoinTable(2)(all_prop_vecs)))
-	--then start selecting per property, map and add into a table
-	shareList[2] = {}
-	local all_L1 = {}
-	for i=1,vocab_size do
-		local images = nn.Select(3,i)(properties_3d)
-		local L1 = nn.Linear(game_size,hidden_size)(images)
-		table.insert(shareList[2],L1)
-		local L11 = nn.Sigmoid()(nn.MulConstant(1)(L1))
-		table.insert(all_L1,L11)
-	end
+	local properties_3d = nn.View(2,-1):setNumInputDims(1)(nn.JoinTable(2)(all_prop_vecs))
+	-- convert to batch_size * feat_size x 2
+	local properties_3d_b = nn.View(-1,game_size)(nn.Transpose({2,3})(properties_3d))
 	
-	--take discriminativeness of feature	
-	shareList[3] = {}
-	local all_L2 = {}
-	for i=1,vocab_size do
-		local L2 = nn.Linear(hidden_size,1)(all_L1[i])
-		--table.insert(all_L2,nn.Sigmoid()(nn.MulConstant(k)(L2)))
-		table.insert(all_L2, L2)
-		table.insert(shareList[3],L2)
-	end
+	--hidden layer for discriminativeness
+	local hid = nn.LinearNB(game_size, hidden_size)(properties_3d_b)
+	hid =  nn.Sigmoid()(nn.MulConstant(1)(hid))
 	
-
-
-	--convert to soft-max
-	local result = nn.JoinTable(2)(all_L2)
+	--compute discriminativeness
+	local discr = nn.LinearNB(hidden_size,1)(hid)
+	--discr = nn.Sigmoid()(nn.MulConstant(k)(discr))
+	
+	--reshaping to batch_size x feat_size
+	local result = nn.View(-1,vocab_size)(discr)
 
     	local outputs = {}
 	table.insert(outputs, result)
@@ -77,4 +66,4 @@ function XOR3.xor(game_size, feat_size, vocab_size, hidden_size, share, gpu, k)
 	return model
 end
 
-return XOR3
+return model_fast_NB

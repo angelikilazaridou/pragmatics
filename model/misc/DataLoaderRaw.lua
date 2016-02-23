@@ -1,20 +1,21 @@
 require 'hdf5'
 local utils = require 'misc.utils'
 
-local DataLoader = torch.class('DataLoader')
+local DataLoaderRaw = torch.class('DataLoaderRaw')
 
-function DataLoader:__init(opt)
-  
+function DataLoaderRaw:__init(opt)
+
+
+  	--handcode split 
+	split = 'test'
+
 	-- load the json file which contains additional information about the dataset
-	print('DataLoader loading json file: ', opt.json_file)
-	self.info = utils.read_json(opt.json_file)
 	self.gpu = opt.gpu
-  	self.vocab_size = self.info.vocab_size 
+  	self.vocab_size = opt.vocab_size 
 	if opt.vocab_size >0 then
 		self.vocab_size = opt.vocab_size
 	end
-	self.game_size = self.info.game_size
-	self.label_format = opt.label_format
+	self.game_size = opt.game_size
   	print('vocab size is ' .. self.vocab_size)
   
   	-- open the hdf5 file
@@ -38,8 +39,7 @@ function DataLoader:__init(opt)
   	-- separate out indexes for each of the provided splits
   	self.split_ix = {}
   	self.iterators = {}
-  	for i,img in pairs(self.info.images) do
-    		local split = img.split
+  	for i=1,self.num_images do
     		if not self.split_ix[split] then
       			-- initialize new split
       			self.split_ix[split] = {}
@@ -53,20 +53,20 @@ function DataLoader:__init(opt)
   	end
 end
 
-function DataLoader:resetIterator(split)
+function DataLoaderRaw:resetIterator(split)
   	self.iterators[split] = 1
 end
 
-function DataLoader:getVocabSize()
+function DataLoaderRaw:getVocabSize()
 	return self.vocab_size
 end
 
 
-function DataLoader:getGameSize()
+function DataLoaderRaw:getGameSize()
         return self.game_size
 end
 
-function DataLoader:getFeatSize()
+function DataLoaderRaw:getFeatSize()
         return self.feat_size
 end
 
@@ -78,7 +78,7 @@ end
   - info table of length N, containing additional information
   The data is iterated linearly in order. Iterators for any split can be reset manually with resetIterator()
 --]]
-function DataLoader:getBatch(opt)
+function DataLoaderRaw:getBatch(opt)
 	local split = utils.getopt(opt, 'split') -- lets require that user passes this in, for safety
 	local batch_size = utils.getopt(opt, 'batch_size', 5) -- how many images get returned at one time (to go through CNN)
 	
@@ -125,11 +125,8 @@ function DataLoader:getBatch(opt)
     			-- fetch the image from h5
     			local img = self.h5_file:read('/images'):partial({ix,ix},{ii,ii},{1,self.feat_size})
 			local img_norm = torch.norm(img)
-	       		img = img/img_norm
+	       		img = img/img_norm	
     			img_batch[ii][i] = img
-			--fetch their properies
-			local inx = self.info.images[ix].concepts[ii]
-			properties[i][ii] = self.h5_file:read('/properties'):partial({inx,inx},{1,self.vocab_size})
 		end
      
 		--labels
@@ -139,11 +136,9 @@ function DataLoader:getBatch(opt)
 
     		-- and record associated info as well
     		local info_struct = {}
-    		info_struct.id = self.info.images[ix].id
-		info_struct.concepts = self.info.images[ix].concepts
+    		info_struct.id = ix
     		table.insert(infos, info_struct)
   	end
-	data.properties = properties
   	data.images = img_batch
 	data.labels = label_batch:contiguous() -- note: make label sequences go down as columns
 	data.bounds = {it_pos_now = self.iterators[split], it_max = #split_ix, wrapped = wrapped}

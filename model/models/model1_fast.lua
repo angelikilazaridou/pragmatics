@@ -19,8 +19,11 @@ function model_fast.model(game_size, feat_size, vocab_size, hidden_size, share, 
 		--map images to some property space
 		local property_vec = nn.Linear(feat_size, vocab_size)(image)
 		table.insert(shareList[1],property_vec)
+
 		local p_t = property_vec
+		
 		table.insert(all_prop_vecs,p_t)
+
 	end
 
 	-- Then convert to 3d -> batch_size x 2 x feat_size
@@ -34,7 +37,7 @@ function model_fast.model(game_size, feat_size, vocab_size, hidden_size, share, 
 	
 	--compute discriminativeness
 	local discr = nn.Linear(hidden_size,1)(hid)
-	-- discr = nn.Sigmoid(nn.MulConstant(k)(discr))
+	--discr = nn.Sigmoid()(nn.MulConstant(k)(discr))
 	
 	--reshaping to batch_size x feat_size
 	local result = nn.View(-1,vocab_size)(discr)

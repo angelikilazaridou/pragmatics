@@ -7,6 +7,8 @@ import scipy.io
 import h5py
 import json
 from random import shuffle
+import math
+
 
 
 #generate data were vectors are real visual vectors
@@ -54,6 +56,7 @@ def gen_Carina_vis_vecs(params):
                 data.append((a,b,c,v[0],v[1]))
 
 
+
         imgs = []
         n_imgs = len(data)
 
@@ -88,8 +91,12 @@ def gen_Carina_vis_vecs(params):
 	for n in range(n_concepts):
 		dset2[n] = np.array(vectors[n])
 	f.close()
-        #generate split
-        assign_splits(imgs,params)
+
+        #generate splits
+	if params['zero_shot']>0:
+		assign_splits_0shot(imgs,params)
+	else:
+        	assign_splits(imgs,params)
 
         #save json file
         out = {}
@@ -256,6 +263,67 @@ def assign_splits(imgs, params):
         		img['split'] = 'train'
 		
 
+
+#truly 0shot both concepts
+def assign_splits_0shot(imgs, params):
+
+	#read in data
+	concepts = {}
+	c2idx = {}
+	
+	cat2c = {}
+
+	idx = 1
+	with open('../../DATA/visAttCarina/raw/concepts_with_cats.txt') as f:
+        	for line in f.readlines():
+			c = line.strip().split(' ')[0]
+			cat = line.strip().split(' ')[1]
+			
+			concepts[c] = cat
+			
+			c2idx[c] = idx
+			idx+=1	
+	
+			if not cat in cat2c:
+				cat2c[cat] = []
+			cat2c[cat].append(c)
+
+
+	#keep params.zero_shot apart for test
+	ts_concepts = {}
+	for cat in cat2c:
+		#if there are too few concepts, skip category
+		if cat2c < 2:
+			continue
+		for i in range(int(math.ceil(params['zero_shot'] * len(cat2c[cat])))):
+			ts_concepts[c2idx[cat2c[cat][i]]] = cat2c[cat][i]
+		
+	print "test concepts ids",ts_concepts
+
+	#map them to ids
+
+	num_val = params['num_val']
+	val = 0
+	for i,img in enumerate(imgs):
+
+		c1,c2 = img['concepts']
+		#if test concept
+		if (c1 in ts_concepts) or (c2 in ts_concepts):
+			if (c1 in ts_concepts) and (c2 in ts_concepts):
+				img['split'] = 'test'
+			else:
+				img['split'] = 'unused'
+		else:
+			#keep some apart for validation
+                	if val < num_val:
+                        	img['split'] = 'val'
+				val +=1
+			else:
+				img['split'] = 'train'
+
+
+
+
 def gen_XOR(params):
 	data = []
 	
@@ -349,6 +417,7 @@ if __name__ ==  "__main__":
 	#training parameters
 	parser.add_argument('-num_val',dest ='num_val',type=int,default=500,help="Number of validation elements")
 	parser.add_argument('-num_test',dest ='num_test',type=int,default=1000,help="Number of test elements")
+	parser.add_argument('-zero_shot',dest = 'zero_shot', type=float, default=0, help="Whether to keep apart for 0shot. If > then this is interpreted as fraction of concepts per category")
 	args = parser.parse_args()
 
 	params = vars(args) # convert to ordinary dict
