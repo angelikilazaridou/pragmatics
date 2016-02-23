@@ -89,11 +89,11 @@ function DataLoader:getBatch(opt)
     local img_batch = {} --torch.Tensor(batch_size, mem_size, self.feat_size)
     --initialize one table elements per game size
     for i=1,self.game_size do
-    if self.gpu<0 then
-          table.insert(img_batch, torch.FloatTensor(batch_size,  self.feat_size))
-    else
-      table.insert(img_batch, torch.CudaTensor(batch_size,  self.feat_size))
-    end
+      if self.gpu<0 then
+        table.insert(img_batch, torch.FloatTensor(batch_size,  self.feat_size))
+      else
+        table.insert(img_batch, torch.CudaTensor(batch_size,  self.feat_size))
+      end
     end
 
   --the labels per gane
