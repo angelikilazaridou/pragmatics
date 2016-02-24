@@ -3,7 +3,7 @@ require 'nn'
 require 'nngraph'
 -- local imports
 local utils = require 'misc.utils'
-require 'misc.DataLoader'
+require 'misc.DataLoaderSingle'
 require 'misc.optim_updates'
 local baseline_model = require 'models.lg_discriminative_baseline'
 -------------------------------------------------------------------------------
@@ -16,8 +16,8 @@ cmd:text()
 cmd:text('Options')
 
 -- Data input settings
-cmd:option('-input_h5','/home/thenghiapham/work/project/pragmatics/data/0shot/data.h5','path to the h5file containing the preprocessed dataset')
-cmd:option('-input_json','/home/thenghiapham/work/project/pragmatics/data/0shot/data.json','path to the json file containing additional info and vocab')
+cmd:option('-input_h5','/home/thenghiapham/work/project/pragmatics/DATA/visAttCarina/processed/0shot_single/data.h5','path to the h5file containing the preprocessed dataset')
+cmd:option('-input_json','/home/thenghiapham/work/project/pragmatics/DATA/visAttCarina/processed/0shot_single/data.json','path to the json file containing additional info and vocab')
 cmd:option('-feat_size',-1,'The number of image features')
 cmd:option('-vocab_size',-1,'The number of properties')
 -- Select model
@@ -69,7 +69,7 @@ end
 -------------------------------------------------------------------------------
 -- Create the Data Loader instance
 -------------------------------------------------------------------------------
-local loader = DataLoader{h5_file = opt.input_h5, json_file = opt.input_json, label_format = opt.crit, feat_size = opt.feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size}
+local loader = DataLoaderSingle{h5_file = opt.input_h5, json_file = opt.input_json, label_format = opt.crit, feat_size = opt.feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size}
 local game_size = loader:getGameSize()
 local feat_size = loader:getFeatSize()
 local vocab_size = loader:getVocabSize()

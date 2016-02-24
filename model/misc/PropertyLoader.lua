@@ -3,54 +3,40 @@ local utils = require 'misc.utils'
 
 local DataLoader = torch.class('DataLoader')
 
-function DataLoader:__init(opt)
-  
-  -- load the json file which contains additional information about the dataset
-  print('DataLoader loading json file: ', opt.json_file)
-  self.info = utils.read_json(opt.json_file)
-  self.gpu = opt.gpu
-    self.vocab_size = self.info.vocab_size 
-  if opt.vocab_size >0 then
-    self.vocab_size = opt.vocab_size
-  end
-  self.game_size = self.info.game_size
-  self.label_format = opt.label_format
-    print('vocab size is ' .. self.vocab_size)
-  
-    -- open the hdf5 file
-    print('DataLoader loading h5 file: ', opt.h5_file)
-    self.h5_file = hdf5.open(opt.h5_file, 'r')
-  
-    -- extract image size from dataset
-    local images_size = self.h5_file:read('/images'):dataspaceSize()
-    assert(#images_size == 3, '/images should be a 3D tensor')
-    assert(images_size[2] == 2, 'There should be two images per training element')
-    self.num_images = images_size[1]
-  if opt.feat_size == -1 then
-    self.feat_size = images_size[3]
-  else
-    self.feat_size = opt.feat_size
-  end
-    self.num_pairs = images_size[2]
-      print(string.format('read %d images of size %dx%d', self.num_images, self.num_pairs, self.feat_size))
+function DataLoader:readlists(input_file)
+  local i_stream = io.open(input_file, 'r')
+  local outputs = {}
+  local line = i_stream:read()
+  while (line ~= nil) do
+    table.insert(outputs, line)
+  end 
+  i_stream:close()
+  return outputs
+end
 
-  
-    -- separate out indexes for each of the provided splits
-    self.split_ix = {}
-    self.iterators = {}
-    for i,img in pairs(self.info.images) do
-        local split = img.split
-        if not self.split_ix[split] then
-            -- initialize new split
-            self.split_ix[split] = {}
-            self.iterators[split] = 1
-        end
-        table.insert(self.split_ix[split], i)
+function DataLoader:tensorize(data)
+  for i=1,#data do
+    data[i] = data[i]:split("%s")
+    for j=1,#data[i] do
+      data[i][j] = tonumber(data[i][j])
     end
-  
-  for k,v in pairs(self.split_ix) do
-        print(string.format('assigned %d images to split %s', #v, k))
-    end
+  end
+  data = torch.Tensor(data)
+  return data
+end
+
+function DataLoader:__init(opt)
+  local training_file = opt.training_file
+  local testing_file = opt.testing_file
+  local visual_num = 4096
+  local property_num = 576
+  local test_data = self:readlists(testing_file)
+  local train_data = self:readlists(training_file)
+  test_data = self:tensorize(test_data)
+  train_data = self:tensorize(train_data)
+  self.train_data = train_data
+  self.test_data = test_data
+  return self
 end
 
 function DataLoader:resetIterator(split)
