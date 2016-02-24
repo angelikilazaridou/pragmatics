@@ -4,10 +4,13 @@ require 'nngraph'
 -- local imports
 local utils = require 'misc.utils'
 require 'misc.DataLoader'
+require 'misc.DataLoaderSingle'
 require 'misc.optim_updates'
 local model1 = require 'models.model1'
 local model1_fast = require 'models.model1_fast'
 local model1_fast_NB = require 'models.model1_fast_NB'
+local model1_fast_NB_hl = require 'models.model1_fast_NB_hl'
+
 -------------------------------------------------------------------------------
 -- Input arguments and options
 -------------------------------------------------------------------------------
@@ -18,17 +21,19 @@ cmd:text()
 cmd:text('Options')
 
 -- Data input settings
-cmd:option('-input_h5','../DATA/visAttCarina/processed/0shot/data.h5','path to the h5file containing the preprocessed dataset')
-cmd:option('-input_json','..//DATA/visAttCarina/processed/0shot/data.json','path to the json file containing additional info and vocab')
+cmd:option('-input_h5','../DATA/visAttCarina/processed/0shot_single/data.h5','path to the h5file containing the preprocessed dataset')
+cmd:option('-input_json','..//DATA/visAttCarina/processed/0shot_single/data.json','path to the json file containing additional info and vocab')
 cmd:option('-feat_size',-1,'The number of image features')
 cmd:option('-vocab_size',-1,'The number of properties')
+cmd:option('-single_images',1,'Whether to train on centroid or not')
 -- Select model
 cmd:option('-model','model1_fast','What model to use')
 cmd:option('-crit','MSE','What criterion to use')
 cmd:option('-hidden_size',20,'The hidden size of the discriminative layer')
 cmd:option('-k',1,'The slope of sigmoid')
+cmd:option('-scale_output',0,'Whether to add a sigmoid at teh output of the model')
 -- Optimization: General
-cmd:option('-max_iters', -1, 'max number of iterations to run for (-1 = run forever)')
+cmd:option('-max_iters', 7000, 'max number of iterations to run for (-1 = run forever)')
 cmd:option('-batch_size',16,'what is the batch size in number of images per batch? (there will be x seq_per_img sentences)')
 cmd:option('-grad_clip',0.1,'clip gradients at this value (note should be lower than usual 5 because we normalize grads by both batch and seq_length)')
 -- Optimization: for the model
@@ -40,13 +45,12 @@ cmd:option('-optim_alpha',0.8,'alpha for adagrad/rmsprop/momentum/adam')
 cmd:option('-optim_beta',0.999,'beta used for adam')
 cmd:option('-optim_epsilon',1e-8,'epsilon that goes into denominator for smoothing')
 cmd:option('-weight_decay',0,'Weight decay for L2 norm')
-
 -- Evaluation/Checkpointing
 cmd:option('-val_images_use', 3200, 'how many images to use when periodically evaluating the validation loss? (-1 = all)')
-cmd:option('-save_checkpoint_every', 1000, 'how often to save a model checkpoint?')
-cmd:option('-checkpoint_path', '', 'folder to save checkpoints into (empty = this folder)')
+cmd:option('-save_checkpoint_every', 100, 'how often to save a model checkpoint?')
+cmd:option('-checkpoint_path', 'tune_new_single/', 'folder to save checkpoints into (empty = this folder)')
 cmd:option('-losses_log_every', 25, 'How often do we snapshot losses, for inclusion in the progress dump? (0 = disable)')
-
+cmd:option('-beta',1,'beta for f_x')
 -- misc
 cmd:option('-id', '', 'an id identifying this run/job. used in cross-val and appended when writing progress files')
 cmd:option('-seed', 123, 'random number generator seed to use')
@@ -55,10 +59,14 @@ cmd:option('-verbose',false,'How much info to give')
 cmd:option('-print_every',1000,'Print some statistics')
 cmd:text()
 
--------------------------------------------------------------------------------
+
+------------------------------------------------------------------------------
 -- Basic Torch initializations
 -------------------------------------------------------------------------------
 local opt = cmd:parse(arg)
+opt.id = '_'..opt.model..'_h@'..opt.hidden_size..'_k@'..'_scOut@'..opt.scale_output..'_w@'..opt.weight_decay..'_lr@'..opt.learning_rate..'_dlr@'..opt.learning_rate_decay_every
+
+
 torch.manualSeed(opt.seed)
 torch.setdefaulttensortype('torch.FloatTensor') -- for CPU
 
@@ -72,7 +80,12 @@ end
 -------------------------------------------------------------------------------
 -- Create the Data Loader instance
 -------------------------------------------------------------------------------
-local loader = DataLoader{h5_file = opt.input_h5, json_file = opt.input_json, label_format = opt.crit, feat_size = opt.feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size}
+local loader 
+if opt.single_images==0 then
+	loader = DataLoader{h5_file = opt.input_h5, json_file = opt.input_json, label_format = opt.crit, feat_size = opt.feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size}
+else
+	loader =  DataLoaderSingle{h5_file = opt.input_h5, json_file = opt.input_json, label_format = opt.crit, feat_size = opt.feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size}
+end
 local game_size = loader:getGameSize()
 local feat_size = loader:getFeatSize()
 local vocab_size = loader:getVocabSize()
@@ -90,14 +103,15 @@ opt.feat_size = feat_size
 -- Initialize the network
 -------------------------------------------------------------------------------
 local protos = {}
-local to_share = 1
 
-print(string.format('Parameters are model=%s game_size=%d feat_size=%d, vocab_size=%d,to_share=%d\n',opt.model, game_size, feat_size,vocab_size,to_share))
+print(string.format('Parameters are model=%s game_size=%d feat_size=%d, vocab_size=%d\n',opt.model, game_size, feat_size,vocab_size))
 -- create protos from scratch
 if opt.model == 'model1_fast' then
-        protos.model = model1_fast.model(game_size, feat_size, vocab_size, opt.hidden_size, to_share, opt.gpuid, opt.k)
+        protos.model = model1_fast.model(game_size, feat_size, vocab_size, opt.hidden_size, opt.scale_output, opt.gpuid, opt.k)
 elseif opt.model == 'model1_fast_NB' then
-        protos.model = model1_fast_NB.model(game_size, feat_size, vocab_size, opt.hidden_size, to_share, opt.gpuid, opt.k)
+        protos.model = model1_fast_NB.model(game_size, feat_size, vocab_size, opt.hidden_size, opt.scale_output, opt.gpuid, opt.k)
+elseif opt.model == 'model1_fast_NB_hl' then
+        protos.model = model1_fast_NB_hl.model(game_size, feat_size, vocab_size, opt.hidden_size, opt.scale_output, opt.gpuid, opt.k)
 elseif opt.model == 'model1' then
         protos.model = model1.model(game_size, feat_size, vocab_size, opt.hidden_size, to_share, opt.gpuid, opt.k)
 else
@@ -127,10 +141,10 @@ assert(params:nElement() == grad_params:nElement())
 reg = {}
 reg[1] = protos.model.forwardnodes[5].data.module.weight --Linear mapping
 reg[2] = protos.model.forwardnodes[5].data.module.bias
---reg[3] = protos.model.forwardnodes[13].data.module.weight --hidden for XOR
---reg[4] = protos.model.forwardnodes[13].data.module.bias
---reg[5] = protos.model.forwardnodes[16].data.module.weight -- decision
---reg[6] = protos.model.forwardnodes[16].data.module.bias
+reg[3] = protos.model.forwardnodes[13].data.module.weight --hidden for XOR
+reg[4] = protos.model.forwardnodes[13].data.module.bias
+reg[5] = protos.model.forwardnodes[16].data.module.weight -- decision
+reg[6] = protos.model.forwardnodes[16].data.module.bias
 
 
 collectgarbage() -- "yeah, sure why not"
@@ -148,13 +162,14 @@ local function eval_split(split, evalopt)
   	local loss_sum = 0
   	local loss_evals = 0
   	local predictions = {}
-  	local correct = 0
-	local p_correct = 0
-	local p_all = 0
+	 --for discriminativeness
+        local TP_D = 0
+        local TP_FN_D = 0
+        local TP_FP_D = 0
+
 	local all = 0
-	local f_correct = 0
-	local f_all = 0
 	local balance = 0
+	-- for features
 	local TP = torch.zeros(1,2)
 	local TP_FN = torch.zeros(1,2)
 	local TP_FP = torch.zeros(1,2)
@@ -186,10 +201,9 @@ local function eval_split(split, evalopt)
 		--print(data.properties)
         	for i=1,opt.batch_size do
 			--check if prediction of discriminativeness if correct
-                	if torch.all(torch.eq(predicted2[i], data.labels[i])) then
-                        	correct = correct +1
-                	end
-
+                        TP_D = TP_D + torch.sum(torch.cmul(predicted2[i],data.labels[i]))
+                        TP_FN_D = TP_FN_D + torch.sum(data.labels[i])
+                        TP_FP_D = TP_FP_D + torch.sum(predicted2[i])
 			sparsity = sparsity + torch.sum(predicted2[i])
 
 			--check if properties are correct
@@ -197,10 +211,6 @@ local function eval_split(split, evalopt)
 				local s1 = properties[ii][{{i,i},{1,vocab_size}}]:clone():apply(function(x) if x >0 then return 1 else return 0 end end)
 				local s11 = properties[ii][{{i,i},{1,vocab_size}}]:clone():apply(function(x) if x >0 then return 0 else return 1 end end)			
 				local s2 = data.properties[{{i,i},{ii,ii},{1,vocab_size}}][1]  --3d
-				if torch.all(torch.eq(s1,s2)) then
-					p_correct = p_correct+1
-				end
-				p_all = p_all+1
 				--feature wise
 				--compute both 0/1 cases and give the one with bigger F1
 				TP[1][1] = TP[1][1] + torch.sum(torch.cmul(s1,s2)) --correct
@@ -228,13 +238,17 @@ local function eval_split(split, evalopt)
     		if n >= val_images_use then break end -- we've used enough images
   	end
 
+	local precision_D = TP_D/TP_FP_D
+	local recall_D = TP_D/TP_FN_D
+  	local F1_D = ((1+opt.beta^2) * precision_D * recall_D)/((opt.beta^2*precision_D)+recall_D)
+
 	local precision = torch.cdiv(TP,TP_FP)
 	local recall = torch.cdiv(TP,TP_FN)
 	local F1s = torch.cdiv(torch.mul(torch.cmul(precision,recall),2),torch.add(precision,recall))
 	local val,pos = torch.max(F1s,2)
 	pos = pos[1][1]
-	
-	return correct/all, precision[1][pos], recall[1][pos], F1s[1][pos], sparsity/all
+
+	return precision_D, recall_D, F1_D, precision[1][pos], recall[1][pos], F1s[1][pos], sparsity/all	
 
 end
 
@@ -312,12 +326,25 @@ while true do
   	if (iter % opt.save_checkpoint_every == 0 or iter == opt.max_iters) then
 
     		-- evaluate the validation performance
-    		local acc, precision, recall, f1, sparsity = eval_split('val', {val_images_use = opt.val_images_use, verbose=opt.verbose})
-    		print(string.format('validation loss: %f    precision: %f   recall: %f   F1: %f (sparsity: %f)', acc ,precision, recall, f1, sparsity))
-    		val_acc_history[iter] = acc
-		val_prop_acc_history[iter] = prop_acc
-		acc, precision, recall, f1, sparsity = eval_split('test', {val_images_use = opt.val_images_use, verbose=opt.verbose})
-                print(string.format('test loss loss: %f    precision: %f   recall: %f   F1: %f (sparsity: %f', acc ,precision, recall, f1, sparsity))
+    		local precision_D, recall_D, f1_D, precision, recall, f1, sparsity = eval_split('val', {val_images_use = opt.val_images_use, verbose=opt.verbose})
+                print(string.format('VALIDATION (discriminativeness) precision: %f   recall: %f   F1: %f (sparsity: %f)', precision_D, recall_D, f1_D, sparsity))
+    		print(string.format('VALIDATION (property) precision: %f   recall: %f   F1: %f', precision, recall, f1))
+		
+		precision_D, recall_D, f1_D, precision, recall, f1, sparsity = eval_split('test', {val_images_use = opt.val_images_use, verbose=opt.verbose})
+                print(string.format('TEST (discriminativeness) precision: %f   recall: %f   F1: %f (sparsity: %f)', precision_D, recall_D, f1_D, sparsity))
+		print(string.format('TEST (property) precision: %f   recall: %f   F1: %f', precision, recall, f1))
+		
+		--check if F1s are nan
+		if f1_D~=f1_D then
+			f1_D = 0
+		end
+		--keep test score for now
+		val_acc_history[iter] = f1_D
+		if f1~=f1 then
+			f1 = 0
+		end
+		val_prop_acc_history[iter] = f1
+
 
 
     		-- write a (thin) json report
@@ -333,7 +360,7 @@ while true do
     		print('wrote json checkpoint to ' .. checkpoint_path .. '.json')
 
     		-- write the full model checkpoint as well if we did better than ever
-    		local current_score = acc
+    		local current_score = f1_D
     
 		if best_score == nil or current_score >= best_score then
       			best_score = current_score
@@ -381,7 +408,7 @@ while true do
 	--apply normalization after param update
 	if opt.weight_decay >0 then
 		for _,w in ipairs(reg) do
-      			w:add(-opt.weight_decay, w)
+      			w:add(-(opt.weight_decay*learning_rate), w)
    		end
 	end
 
