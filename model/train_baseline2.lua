@@ -6,7 +6,8 @@ require 'nngraph'
 local utils = require 'misc.utils'
 require 'misc.DataLoaderSingle'
 require 'misc.optim_updates'
-local baseline_model = require 'models.lg_discriminative_baseline'
+local baseline_model2 = require 'models.lg_discriminative_baseline2'
+require 'misc.MultiLogisticRegression'
 -------------------------------------------------------------------------------
 -- Input arguments and options
 -------------------------------------------------------------------------------
@@ -22,7 +23,7 @@ cmd:option('-input_json','/home/thenghiapham/work/project/pragmatics/DATA/visAtt
 cmd:option('-feat_size',-1,'The number of image features')
 cmd:option('-vocab_size',-1,'The number of properties')
 -- Select model
-cmd:option('-crit','MSE','What criterion to use')
+cmd:option('-crit','MLR','What criterion to use')
 cmd:option('-hidden_size',1000,'The hidden size of the discriminative layer')
 cmd:option('-k',1,'The slope of sigmoid')
 -- Optimization: General
@@ -38,6 +39,7 @@ cmd:option('-optim_alpha',0.8,'alpha for adagrad/rmsprop/momentum/adam')
 cmd:option('-optim_beta',0.999,'beta used for adam')
 cmd:option('-optim_epsilon',1e-8,'epsilon that goes into denominator for smoothing')
 cmd:option('-weight_decay',0,'Weight decay for L2 norm')
+cmd:option('-weight_1',0.8,'Weight decay for L2 norm')
 
 -- Evaluation/Checkpointing
 cmd:option('-val_images_use', 3200, 'how many images to use when periodically evaluating the validation loss? (-1 = all)')
@@ -67,6 +69,8 @@ if opt.gpuid >= 0 then
     cutorch.setDevice(opt.gpuid + 1) -- note +1 because lua is 1-indexed
 end
 
+opt.weights = {1,1}
+opt.weights[2] = tonumber(opt.weight_1)
 -------------------------------------------------------------------------------
 -- Create the Data Loader instance
 -------------------------------------------------------------------------------
@@ -92,11 +96,11 @@ local to_share = 1
 
 print(string.format('Parameters are model=%s game_size=%d feat_size=%d, vocab_size=%d,to_share=%d\n',opt.model, game_size, feat_size,vocab_size,to_share))
 -- create protos from scratch
-protos.model = baseline_model.create_model(game_size, feat_size, vocab_size, opt.hidden_size, opt.gpuid)
-
+protos.model = baseline_model2.create_model(game_size, feat_size, vocab_size, opt.hidden_size, opt.gpuid)
+protos.sigmoid = nn.Sigmoid()
 --add criterion
-if opt.crit == 'MSE' then
-  protos.criterion = nn.MSECriterion()
+if opt.crit == 'MLR' then
+  protos.criterion = nn.MultiLR(opt.weights)
 else  
   print(string.format('Wrong criterion: %s',opt.crit))
 end
@@ -105,6 +109,7 @@ end
 if opt.gpuid >= 0 then
   --model is shipped to cpu within the model
   protos.criterion:cuda()
+  protos.sigmoid:cuda()
 end
 
 -- flatten and prepare all model parameters to a single vector. 
@@ -152,7 +157,7 @@ local function eval_split(split, evalopt)
     loss_evals = loss_evals + 1
 
     --compute accuracy
-    local predicted2 = outputs:clone()
+    local predicted2 = protos.sigmoid:forward(outputs)
     predicted2:apply(function(x) if x>0.5 then return 1 else return 0 end end)
     
 
@@ -238,7 +243,7 @@ local loss_history = {}
 local val_acc_history = {}
 local val_prop_acc_history = {}
 local best_score
-local checkpoint_path = opt.checkpoint_path .. 'discriminative_id' .. opt.id ..'.cp'
+local checkpoint_path = opt.checkpoint_path .. 'discriminative_id2' .. opt.id ..'.cp'
 
 while true do  
 
@@ -328,10 +333,10 @@ while true do
     iter = iter + 1
     if iter % 10 == 0 then collectgarbage() end -- good idea to do this once in a while, i think
     if loss0 == nil then loss0 = losses end
-    if losses > loss0 * 20 then
-        print('loss seems to be exploding, quitting.')
-        break
-    end
+--    if losses > loss0 * 20 then
+--        print('loss seems to be exploding, quitting.')
+--        break
+--    end
     if opt.max_iters > 0 and iter >= opt.max_iters then break end -- stopping criterion
 
 end

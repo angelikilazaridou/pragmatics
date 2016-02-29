@@ -1,6 +1,7 @@
+local utils = require 'misc.utils'
 --local input_dir = "/home/angeliki/git/pragmatics/DATA/"
 local input_dir = "/home/thenghiapham/work/project/pragmatics/DATA/"
-local mat_file = input_dir .. "visVecs/fc7.mat"
+local mat_file = input_dir .. "visVecs/fc7.txt"
 local mat_label_file = input_dir .. "visVecs/fc7labels.txt"
 local concept_file = input_dir .. "visAttCarina/raw/concepts.txt"
 local concept_vector_file = input_dir .. "visAttCarina/raw/vectors.txt"
@@ -56,7 +57,7 @@ local function read_dict(rm_file)
   for i=1,#elements do
     local element = elements[i]
     local es = element:split(": ")
-    table.insert(test_concept, es[2])
+    table.insert(test_concept, string.sub(es[2], 2, string.len(es[2]) -1))
   end 
   i_stream:close()
   return test_concept
@@ -68,8 +69,12 @@ local concept_properties = readlists(concept_vector_file)
 
 local train_stream = io.open(train_file, "w")
 local test_stream = io.open(test_file, "w")
-for i=1,#concepts do
-  local concept = concepts[i]
+local concept_num = #concepts
+local range_length = utils.range(concept_num)
+utils.shuffle_array(range_length)
+print(range_length[1] .. ", " .. range_length[2] .. ", " .. range_length[3] .. ", " .. range_length[4])
+for i=1,concept_num do
+  local concept = concepts[range_length[i]]
   if test_concept_dict[concept] ~= nil then
     test_stream:write(concept_visual_vs[i] .. " " .. concept_properties[i] .. "\n")
   else

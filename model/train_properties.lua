@@ -1,9 +1,11 @@
 require 'torch'
+require 'cutorch'
 require 'nn'
 require 'nngraph'
+require 'cunn'
 -- local imports
 local utils = require 'misc.utils'
-require 'misc.PropertyLoader'
+local PropertyLoader = require 'misc.PropertyLoader'
 require 'misc.optim_updates'
 local baseline_model = require 'models.lg_property_baseline'
 -------------------------------------------------------------------------------
@@ -16,20 +18,20 @@ cmd:text()
 cmd:text('Options')
 
 -- Data input settings
-cmd:option('-input_visual','/home/thenghiapham/work/project/pragmatics/data/0property/___','path to the visual vector file')
-cmd:option('-input_property','/home/thenghiapham/work/project/pragmatics/data/0property/___','path to the property')
+cmd:option('-training_file','/home/thenghiapham/work/project/pragmatics/DATA/visAttCarina/processed/prop_baseline/train.txt','path to the visual vector file')
+cmd:option('-testing_file','/home/thenghiapham/work/project/pragmatics/DATA/visAttCarina/processed/prop_baseline/test.txt','path to the property')
 cmd:option('-feat_size',-1,'The number of image features')
 cmd:option('-vocab_size',-1,'The number of properties')
 -- Select model
 cmd:option('-crit','MSE','What criterion to use')
-cmd:option('-hidden_size',100,'The hidden size of the discriminative layer (0 if want to use 1 linear layer)')
+cmd:option('-hidden_size',600,'The hidden size of the discriminative layer (0 if want to use 1 linear layer)')
 -- Optimization: General
 cmd:option('-max_iters', -1, 'max number of iterations to run for (-1 = run forever)')
 cmd:option('-batch_size',16,'what is the batch size in number of images per batch? (there will be x seq_per_img sentences)')
 cmd:option('-grad_clip',0.1,'clip gradients at this value (note should be lower than usual 5 because we normalize grads by both batch and seq_length)')
 -- Optimization: for the model
 cmd:option('-optim','adam','what update to use? rmsprop|sgd|sgdmom|adagrad|adam')
-cmd:option('-learning_rate',0.001,'learning rate')
+cmd:option('-learning_rate',0.009,'learning rate')
 cmd:option('-learning_rate_decay_start', -1, 'at what iteration to start decaying learning rate? (-1 = dont)')
 cmd:option('-learning_rate_decay_every', 500, 'every how many iterations thereafter to drop LR by half?')
 cmd:option('-optim_alpha',0.8,'alpha for adagrad/rmsprop/momentum/adam')
@@ -46,7 +48,7 @@ cmd:option('-losses_log_every', 25, 'How often do we snapshot losses, for inclus
 -- misc
 cmd:option('-id', '', 'an id identifying this run/job. used in cross-val and appended when writing progress files')
 cmd:option('-seed', 123, 'random number generator seed to use')
-cmd:option('-gpuid', 0, 'which gpu to use. -1 = use CPU')
+cmd:option('-gpuid', -1, 'which gpu to use. -1 = use CPU')
 cmd:option('-verbose',false,'How much info to give')
 cmd:option('-print_every',1000,'Print some statistics')
 cmd:text()
@@ -68,7 +70,7 @@ end
 -------------------------------------------------------------------------------
 -- Create the Data Loader instance
 -------------------------------------------------------------------------------
-local loader = DataLoader{h5_file = opt.input_h5, json_file = opt.input_json, label_format = opt.crit, feat_size = opt.feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size}
+local loader = PropertyLoader.init{training_file = opt.training_file, testing_file = opt.testing_file, gpu = opt.gpuid}
 local feat_size = loader:getFeatSize()
 local vocab_size = loader:getVocabSize()
 
@@ -123,44 +125,41 @@ local function eval_split(split, evalopt)
   protos.model:evaluate()
   loader:resetIterator(split) -- rewind iteator back to first datapoint in the split
   local all = 0
-  local TP_D = 0
-  local TP_FN_D = 0
-  local TP_FP_D = 0
+  local TP = 0
+  local TP_FN = 0
+  local TP_FP = 0
 
-  local sparsity = 0  
+  local sparsity = 0 
+  print("batch_size: " .. opt.batch_size)
+  local iteration = 0
   while true do
-
+    iteration = iteration + 1
     -- fetch a batch of data
     local data = loader:getBatch{batch_size = opt.batch_size, split = split}
 
     -- forward the model to get loss
-    local outputs = protos.model:forward({unpack(data.images)})
-
-    local loss = protos.criterion:forward(outputs, data.labels)
-
-
+    local outputs = protos.model:forward(data[1])
+    local labels = data[2]
     --compute accuracy
     local predicted2 = outputs:clone()
     predicted2:apply(function(x) if x>0.5 then return 1 else return 0 end end)
     
 
-    for i=1,opt.batch_size do
-      TP_D = TP_D + torch.sum(torch.cmul(predicted2[i],data.labels[i]))
-      TP_FN_D = TP_FN_D + torch.sum(data.labels[i])
-      TP_FP_D = TP_FP_D + torch.sum(predicted2[i])
+    TP = TP + torch.sum(torch.cmul(predicted2,labels))
+    TP_FN = TP_FN + torch.sum(labels)
+    TP_FP = TP_FP + torch.sum(predicted2)
 
-      sparsity = sparsity + torch.sum(predicted2[i])
+    sparsity = sparsity + torch.sum(predicted2)
 
-      --check if properties are correct
-      all = all+1
-    end
+    --check if properties are correct
+    all = all + opt.batch_size
   
-    if loss_evals % 10 == 0 then collectgarbage() end
-    if data.bounds.wrapped then break end -- the split ran out of data, lets break out
+    if iteration % 10 == 0 then collectgarbage() end
+    if data[3] then break end -- the split ran out of data, lets break out
   end
 
   print("all: " .. all)
-  return TP_D/TP_FN_D, TP_D/TP_FP_D, sparsity/all
+  return TP/TP_FP, TP/TP_FN, sparsity/all
 
 end
 
@@ -179,23 +178,19 @@ local function lossFun()
     local data = loader:getBatch{batch_size = opt.batch_size, split = 'train'}
   
     -- forward the model on images (most work happens here)
-  local inputs = {}
-
-  for i=1,#data.images do
-    table.insert(inputs,data.images[i])
-  end
+  local inputs = data[1]
+  local labels = data[2]
   --getting property vectoes and loss
+  --print(inputs)
   local outputs = protos.model:forward(inputs)
   -- forward the language model criterion
-  local loss = protos.criterion:forward(outputs, data.labels)
+  local loss = protos.criterion:forward(outputs, labels)
 
   -----------------------------------------------------------------------------
   -- Backward pass
   -----------------------------------------------------------------------------
   -- backprop criterion
-  local dpredicted = protos.criterion:backward(outputs, data.labels)
-  -- backprop language model
-  table.insert(inputs,data.labels)
+  local dpredicted = protos.criterion:backward(outputs, labels)
 
   protos.model:backward(inputs, dpredicted)
 
@@ -218,7 +213,7 @@ local loss_history = {}
 local val_acc_history = {}
 local val_prop_acc_history = {}
 local best_score
-local checkpoint_path = opt.checkpoint_path .. 'cp_id' .. opt.id ..'.cp'
+local checkpoint_path = opt.checkpoint_path .. 'property_id' .. opt.id ..'.cp'
 
 while true do  
 
@@ -231,12 +226,8 @@ while true do
     if (iter % opt.save_checkpoint_every == 0 or iter == opt.max_iters) then
 
         -- evaluate the validation performance
-        local precision, recall, sparsity = eval_split('val', {val_images_use = opt.val_images_use, verbose=opt.verbose})
+        local precision, recall, sparsity =  eval_split('test', {val_images_use = opt.val_images_use, verbose=opt.verbose})
         local f1 = 2 * precision * recall / (precision + recall)
-        print(string.format('val precision : %f recall: %f  f1: %f   (sparsity: %f)', precision , recall, f1, sparsity))
-        val_acc_history[iter] = acc
-        precision, recall, sparsity = eval_split('test', {val_images_use = opt.val_images_use, verbose=opt.verbose})
-        f1 = 2 * precision * recall / (precision + recall)
         print(string.format('tst precision : %f recall: %f  f1: %f   (sparsity: %f', precision , recall,  f1, sparsity))
 
 
@@ -251,7 +242,7 @@ while true do
         print('wrote json checkpoint to ' .. checkpoint_path .. '.json')
 
         -- write the full model checkpoint as well if we did better than ever
-        local current_score = acc
+        local current_score = f1
     
         if best_score == nil or current_score >= best_score then
             best_score = current_score
@@ -262,8 +253,8 @@ while true do
               checkpoint.protos = save_protos
               -- also include the vocabulary mapping so that we can use the checkpoint 
               -- alone to run on arbitrary images without the data loader
-              torch.save(checkpoint_path .. '.t7', checkpoint)
-              print('wrote checkpoint to ' .. checkpoint_path .. '.t7')
+              torch.save(checkpoint_path .. f1 .. '.t7', checkpoint)
+              print('wrote checkpoint to ' .. checkpoint_path .. f1 .. '.t7')
             end
         end
     end
