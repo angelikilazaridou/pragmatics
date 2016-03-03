@@ -1,0 +1,2 @@
+has_neck
+is_brown

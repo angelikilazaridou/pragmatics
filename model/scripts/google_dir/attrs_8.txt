@@ -1,0 +1,2 @@
+is_gray
+is_black

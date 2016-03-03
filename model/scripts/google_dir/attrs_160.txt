@@ -1,0 +1,2 @@
+is_square
+is_round

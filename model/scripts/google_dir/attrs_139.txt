@@ -1,0 +1,2 @@
+is_gold
+is_white

@@ -1,0 +1,2 @@
+is_tall
+is_white

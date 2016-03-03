@@ -1,0 +1,2 @@
+is_chubby
+is_black

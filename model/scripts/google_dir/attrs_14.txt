@@ -1,0 +1,2 @@
+is_yellow
+made_of_ceramic

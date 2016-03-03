@@ -1,0 +1,2 @@
+is_blue
+made_of_paper

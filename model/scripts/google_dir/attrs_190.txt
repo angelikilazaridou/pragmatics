@@ -1,0 +1,2 @@
+is_oval
+is_blue

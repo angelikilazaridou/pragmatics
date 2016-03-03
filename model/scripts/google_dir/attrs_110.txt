@@ -1,0 +1,2 @@
+has_skin
+is_black

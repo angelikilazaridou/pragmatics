@@ -1,0 +1,2 @@
+has_1_piece
+is_chubby
