@@ -1,2 +1,0 @@
-has_bristles
-is_long

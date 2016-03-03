@@ -1,2 +1,0 @@
-is_cylindrical
-is_thick

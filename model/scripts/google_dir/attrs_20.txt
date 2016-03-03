@@ -1,2 +1,0 @@
-is_curved
-is_brown

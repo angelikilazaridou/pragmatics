@@ -1,2 +1,0 @@
-is_silver
-made_of_brick

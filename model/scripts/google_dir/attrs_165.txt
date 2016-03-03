@@ -1,2 +1,0 @@
-is_brown
-made_of_glass

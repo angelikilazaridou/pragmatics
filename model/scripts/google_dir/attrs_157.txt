@@ -1,2 +1,0 @@
-different_colors
-is_gold

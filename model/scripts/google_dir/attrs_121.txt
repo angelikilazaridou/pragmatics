@@ -1,2 +1,0 @@
-is_square
-is_black

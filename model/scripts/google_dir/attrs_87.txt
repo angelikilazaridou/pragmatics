@@ -1,2 +1,0 @@
-is_flat
-made_of_concrete

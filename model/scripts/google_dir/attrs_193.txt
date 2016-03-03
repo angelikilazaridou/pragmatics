@@ -1,2 +1,0 @@
-is_thick
-has_head

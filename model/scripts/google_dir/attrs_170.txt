@@ -1,2 +1,0 @@
-is_gold
-has_jaws

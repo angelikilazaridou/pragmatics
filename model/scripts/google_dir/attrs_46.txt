@@ -1,2 +1,0 @@
-has_seat
-is_red

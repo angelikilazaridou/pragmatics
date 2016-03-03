@@ -1,2 +1,0 @@
-is_white
-has_2_legs

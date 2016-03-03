@@ -1,2 +1,0 @@
-is_red
-is_brown

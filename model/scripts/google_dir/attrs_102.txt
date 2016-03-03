@@ -1,2 +1,0 @@
-is_flat
-is_green

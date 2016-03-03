@@ -1,2 +1,0 @@
-is_gray
-has_seams

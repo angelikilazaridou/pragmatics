@@ -1,2 +1,0 @@
-is_colorful
-made_of_concrete

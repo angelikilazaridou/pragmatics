@@ -1,2 +1,0 @@
-is_triangular
-is_white

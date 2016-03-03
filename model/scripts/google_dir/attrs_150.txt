@@ -1,2 +1,0 @@
-has_steering_wheel
-made_of_silver

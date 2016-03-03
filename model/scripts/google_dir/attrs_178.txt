@@ -1,2 +1,0 @@
-is_long
-has_jaws

@@ -1,2 +1,0 @@
-has_pulp
-is_purple

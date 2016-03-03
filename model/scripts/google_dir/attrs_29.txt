@@ -1,2 +1,0 @@
-is_grey
-is_yellow

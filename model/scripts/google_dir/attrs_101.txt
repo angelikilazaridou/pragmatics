@@ -1,2 +1,0 @@
-is_white
-made_of_concrete

@@ -1,2 +1,0 @@
-is_beige
-is_black
