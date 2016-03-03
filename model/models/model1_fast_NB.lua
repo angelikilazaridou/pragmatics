@@ -4,7 +4,7 @@ require 'misc.Peek'
 require 'misc.LinearNB'
 
 local model_fast_NB = {}
-function model_fast_NB.model(game_size, feat_size, vocab_size, hidden_size, share, gpu, k)
+function model_fast_NB.model(game_size, feat_size, vocab_size, hidden_size, scale_output, gpu, k)
 
 
 	local shareList = {}
@@ -37,7 +37,9 @@ function model_fast_NB.model(game_size, feat_size, vocab_size, hidden_size, shar
 	
 	--compute discriminativeness
 	local discr = nn.LinearNB(hidden_size,1)(hid)
-	--discr = nn.Sigmoid()(nn.MulConstant(k)(discr))
+	if scale_output==1 then
+		discr = nn.Sigmoid()(nn.MulConstant(k)(discr))
+	end
 	
 	--reshaping to batch_size x feat_size
 	local result = nn.View(-1,vocab_size)(discr)
@@ -53,15 +55,13 @@ function model_fast_NB.model(game_size, feat_size, vocab_size, hidden_size, shar
 
 	if gpu>=0 then model:cuda() end
         -- IMPORTANT! do weight sharing after model is in cuda
-	if share==1 then
-        	for i = 1,#shareList do
-                	local m1 = shareList[i][1].data.module
-                	for j = 2,#shareList[i] do
-                        	local m2 = shareList[i][j].data.module
-                         	m2:share(m1,'weight','bias','gradWeight','gradBias')
-                 	end
-        	end
-	end
+       	for i = 1,#shareList do
+               	local m1 = shareList[i][1].data.module
+               	for j = 2,#shareList[i] do
+                       	local m2 = shareList[i][j].data.module
+                       	m2:share(m1,'weight','bias','gradWeight','gradBias')
+               	end
+       	end
    
 	return model
 end

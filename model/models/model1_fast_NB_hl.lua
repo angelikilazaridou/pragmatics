@@ -3,8 +3,8 @@ require 'nngraph'
 require 'misc.Peek'
 require 'misc.LinearNB'
 
-local model_fast = {}
-function model_fast.model(game_size, feat_size, vocab_size, hidden_size, scale_output, gpu, k)
+local model_fast_NB_hl = {}
+function model_fast_NB_hl.model(game_size, feat_size, vocab_size, hidden_size, scale_output, gpu, k)
 
 
 	local shareList = {}
@@ -13,16 +13,21 @@ function model_fast.model(game_size, feat_size, vocab_size, hidden_size, scale_o
 	local all_prop_vecs = {}
 	shareList[1] = {} --share mapping to property space
 
+	shareList[2] = {} --second mapping
+
 	for i=1,game_size do
 		local image = nn.Identity()() --insert one image at a time
 		table.insert(inputs, image)
 		--map images to some property space
-		local property_vec = nn.Linear(feat_size, vocab_size)(image)
+		local property_vec = nn.LinearNB(feat_size, 1000)(image)
 		table.insert(shareList[1],property_vec)
 
-		local p_t = property_vec
+		--hidden layer
+		local p_t = nn.Sigmoid()(property_vec)
 		
-		table.insert(all_prop_vecs,p_t)
+		local p_t1 = nn.Linear(1000,vocab_size)(p_t)
+		table.insert(shareList[2],p_t1)
+		table.insert(all_prop_vecs,p_t1)
 
 	end
 
@@ -32,12 +37,12 @@ function model_fast.model(game_size, feat_size, vocab_size, hidden_size, scale_o
 	local properties_3d_b = nn.View(-1,game_size)(nn.Transpose({2,3})(properties_3d))
 	
 	--hidden layer for discriminativeness
-	local hid = nn.Linear(game_size, hidden_size)(properties_3d_b)
+	local hid = nn.LinearNB(game_size, hidden_size)(properties_3d_b)
 	hid =  nn.Sigmoid()(nn.MulConstant(1)(hid))
 	
 	--compute discriminativeness
-	local discr = nn.Linear(hidden_size,1)(hid)
-	if scale_output ==1 then
+	local discr = nn.LinearNB(hidden_size,1)(hid)
+	if scale_output==1 then
 		discr = nn.Sigmoid()(nn.MulConstant(k)(discr))
 	end
 	
@@ -66,4 +71,4 @@ function model_fast.model(game_size, feat_size, vocab_size, hidden_size, scale_o
 	return model
 end
 
-return model_fast
+return model_fast_NB_hl

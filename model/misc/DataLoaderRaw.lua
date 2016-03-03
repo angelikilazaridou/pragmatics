@@ -6,9 +6,12 @@ local DataLoaderRaw = torch.class('DataLoaderRaw')
 function DataLoaderRaw:__init(opt)
 
 
+	print('DataLoader loading json file: ', opt.json_file)
+        self.info = utils.read_json(opt.json_file)
+
   	--handcode split 
 	split = 'test'
-
+	
 	-- load the json file which contains additional information about the dataset
 	self.gpu = opt.gpu
   	self.vocab_size = opt.vocab_size 
@@ -32,6 +35,7 @@ function DataLoaderRaw:__init(opt)
 	else
 		self.feat_size = opt.feat_size
 	end
+	print(images_size[1])
   	self.num_pairs = images_size[2]
     	print(string.format('read %d images of size %dx%d', self.num_images, self.num_pairs, self.feat_size))
 
@@ -137,6 +141,7 @@ function DataLoaderRaw:getBatch(opt)
     		-- and record associated info as well
     		local info_struct = {}
     		info_struct.id = ix
+		info_struct.concepts = self.info.concepts[ix]
     		table.insert(infos, info_struct)
   	end
   	data.images = img_batch
