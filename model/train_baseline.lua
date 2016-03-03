@@ -1,9 +1,10 @@
 require 'torch'
+require 'cutorch'
 require 'nn'
 require 'nngraph'
 -- local imports
 local utils = require 'misc.utils'
-require 'misc.DataLoader'
+require 'misc.DataLoaderSingle'
 require 'misc.optim_updates'
 local baseline_model = require 'models.lg_discriminative_baseline'
 -------------------------------------------------------------------------------
@@ -16,13 +17,13 @@ cmd:text()
 cmd:text('Options')
 
 -- Data input settings
-cmd:option('-input_h5','/home/thenghiapham/work/project/pragmatics/data/0shot/data.h5','path to the h5file containing the preprocessed dataset')
-cmd:option('-input_json','/home/thenghiapham/work/project/pragmatics/data/0shot/data.json','path to the json file containing additional info and vocab')
+cmd:option('-input_h5','/home/thenghiapham/work/project/pragmatics/DATA/visAttCarina/processed/0shot_single/data.h5','path to the h5file containing the preprocessed dataset')
+cmd:option('-input_json','/home/thenghiapham/work/project/pragmatics/DATA/visAttCarina/processed/0shot_single/data.json','path to the json file containing additional info and vocab')
 cmd:option('-feat_size',-1,'The number of image features')
 cmd:option('-vocab_size',-1,'The number of properties')
 -- Select model
 cmd:option('-crit','MSE','What criterion to use')
-cmd:option('-hidden_size',100,'The hidden size of the discriminative layer')
+cmd:option('-hidden_size',1000,'The hidden size of the discriminative layer')
 cmd:option('-k',1,'The slope of sigmoid')
 -- Optimization: General
 cmd:option('-max_iters', -1, 'max number of iterations to run for (-1 = run forever)')
@@ -30,7 +31,7 @@ cmd:option('-batch_size',16,'what is the batch size in number of images per batc
 cmd:option('-grad_clip',0.1,'clip gradients at this value (note should be lower than usual 5 because we normalize grads by both batch and seq_length)')
 -- Optimization: for the model
 cmd:option('-optim','adam','what update to use? rmsprop|sgd|sgdmom|adagrad|adam')
-cmd:option('-learning_rate',0.001,'learning rate')
+cmd:option('-learning_rate',0.005,'learning rate')
 cmd:option('-learning_rate_decay_start', -1, 'at what iteration to start decaying learning rate? (-1 = dont)')
 cmd:option('-learning_rate_decay_every', 500, 'every how many iterations thereafter to drop LR by half?')
 cmd:option('-optim_alpha',0.8,'alpha for adagrad/rmsprop/momentum/adam')
@@ -69,7 +70,7 @@ end
 -------------------------------------------------------------------------------
 -- Create the Data Loader instance
 -------------------------------------------------------------------------------
-local loader = DataLoader{h5_file = opt.input_h5, json_file = opt.input_json, label_format = opt.crit, feat_size = opt.feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size}
+local loader = DataLoaderSingle{h5_file = opt.input_h5, json_file = opt.input_json, label_format = opt.crit, feat_size = opt.feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size}
 local game_size = loader:getGameSize()
 local feat_size = loader:getFeatSize()
 local vocab_size = loader:getVocabSize()
@@ -179,7 +180,7 @@ local function eval_split(split, evalopt)
   end
 
   print("all: " .. all)
-  return TP_D/TP_FN_D, TP_D/TP_FP_D, sparsity/all
+  return TP_D/TP_FP_D, TP_D/TP_FN_D, sparsity/all
 
 end
 
@@ -237,7 +238,7 @@ local loss_history = {}
 local val_acc_history = {}
 local val_prop_acc_history = {}
 local best_score
-local checkpoint_path = opt.checkpoint_path .. 'cp_id' .. opt.id ..'.cp'
+local checkpoint_path = opt.checkpoint_path .. 'discriminative_id' .. opt.id ..'.cp'
 
 while true do  
 
@@ -271,7 +272,7 @@ while true do
         print('wrote json checkpoint to ' .. checkpoint_path .. '.json')
 
         -- write the full model checkpoint as well if we did better than ever
-        local current_score = acc
+        local current_score = f1
     
         if best_score == nil or current_score >= best_score then
             best_score = current_score
@@ -282,8 +283,8 @@ while true do
               checkpoint.protos = save_protos
               -- also include the vocabulary mapping so that we can use the checkpoint 
               -- alone to run on arbitrary images without the data loader
-              torch.save(checkpoint_path .. '.t7', checkpoint)
-              print('wrote checkpoint to ' .. checkpoint_path .. '.t7')
+              torch.save(checkpoint_path .. f1 .. '.t7', checkpoint)
+              print('wrote checkpoint to ' .. f1 .. checkpoint_path .. '.t7')
             end
         end
     end

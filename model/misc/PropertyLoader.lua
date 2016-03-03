@@ -1,155 +1,117 @@
 require 'hdf5'
 local utils = require 'misc.utils'
 
-local DataLoader = torch.class('DataLoader')
+local PropertyLoader = {}
+PropertyLoader.__index = PropertyLoader
 
-function DataLoader:__init(opt)
+function PropertyLoader:readlists(input_file)
+  local i_stream = io.open(input_file, 'r')
+  local outputs = {}
+  local line = i_stream:read()
+  while (line ~= nil) do
+    table.insert(outputs, line)
+    line = i_stream:read()
+  end 
+  i_stream:close()
+  return outputs
+end
+
+function PropertyLoader:tensorize(data)
+  for i=1,#data do
+    data[i] = data[i]:split("%s")
+    for j=1,#data[i] do
+      data[i][j] = tonumber(data[i][j])
+    end
+  end
+  data = torch.Tensor(data)
+--  if self.gpu then
+--    data = data:cuda()
+--  end
+  return data
+end
+
+
+function PropertyLoader.init(opt)
+  local training_file = opt.training_file
+  local testing_file = opt.testing_file
   
-  -- load the json file which contains additional information about the dataset
-  print('DataLoader loading json file: ', opt.json_file)
-  self.info = utils.read_json(opt.json_file)
+  local self = {}
+  setmetatable(self, PropertyLoader)
   self.gpu = opt.gpu
-    self.vocab_size = self.info.vocab_size 
-  if opt.vocab_size >0 then
-    self.vocab_size = opt.vocab_size
-  end
-  self.game_size = self.info.game_size
-  self.label_format = opt.label_format
-    print('vocab size is ' .. self.vocab_size)
-  
-    -- open the hdf5 file
-    print('DataLoader loading h5 file: ', opt.h5_file)
-    self.h5_file = hdf5.open(opt.h5_file, 'r')
-  
-    -- extract image size from dataset
-    local images_size = self.h5_file:read('/images'):dataspaceSize()
-    assert(#images_size == 3, '/images should be a 3D tensor')
-    assert(images_size[2] == 2, 'There should be two images per training element')
-    self.num_images = images_size[1]
-  if opt.feat_size == -1 then
-    self.feat_size = images_size[3]
-  else
-    self.feat_size = opt.feat_size
-  end
-    self.num_pairs = images_size[2]
-      print(string.format('read %d images of size %dx%d', self.num_images, self.num_pairs, self.feat_size))
-
-  
-    -- separate out indexes for each of the provided splits
-    self.split_ix = {}
-    self.iterators = {}
-    for i,img in pairs(self.info.images) do
-        local split = img.split
-        if not self.split_ix[split] then
-            -- initialize new split
-            self.split_ix[split] = {}
-            self.iterators[split] = 1
-        end
-        table.insert(self.split_ix[split], i)
-    end
-  
-  for k,v in pairs(self.split_ix) do
-        print(string.format('assigned %d images to split %s', #v, k))
-    end
+   
+  local test_data = self:readlists(testing_file)
+  local train_data = self:readlists(training_file)
+  self.visual_num = 4096
+  self.prop_num = 576
+  self.all_num = self.visual_num + self.prop_num
+  self.lengths = {}
+  self.lengths["train"] = #train_data
+  self.lengths["test"] = #test_data
+  test_data = self:tensorize(test_data)
+  train_data = self:tensorize(train_data)
+  self.data = {}
+  self.data["train"] = train_data
+  self.data["test"] = test_data
+  self.iterators = {}
+  self.iterators["train"] = 1
+  self.iterators["test"] = 1
+  self.wrapped = {}
+  self.wrapped["train"] = false
+  self.wrapped["test"] = false
+  return self
 end
 
-function DataLoader:resetIterator(split)
+function PropertyLoader:resetIterator(split)
     self.iterators[split] = 1
+    self.wrapped[split] = false
 end
 
-function DataLoader:getVocabSize()
-  return self.vocab_size
+function PropertyLoader:getFeatSize()
+    return self.visual_num
 end
 
-
-function DataLoader:getGameSize()
-        return self.game_size
-end
-
-function DataLoader:getFeatSize()
-        return self.feat_size
+function PropertyLoader:getVocabSize()
+    return self.prop_num
 end
 
 --[[
-  Split is a string identifier (e.g. train|val|test)
+  Split is a string identifier (e.g. train|test)
   Returns a batch of data:
-  - X (N,2,M) containing the images
-  - y (N,1) containing the feature id 
+  - X (N,M) containing the images
+  - y (N,K) containing the properties 
   - info table of length N, containing additional information
   The data is iterated linearly in order. Iterators for any split can be reset manually with resetIterator()
 --]]
-function DataLoader:getBatch(opt)
+function PropertyLoader:getBatch(opt)
   local split = utils.getopt(opt, 'split') -- lets require that user passes this in, for safety
   local batch_size = utils.getopt(opt, 'batch_size', 5) -- how many images get returned at one time (to go through CNN)
-  
-    local split_ix = self.split_ix[split]
-    assert(split_ix, 'split ' .. split .. ' not found.')
-
-    -- pick an index of the datapoint to load next
-    local img_batch = {} --torch.Tensor(batch_size, mem_size, self.feat_size)
-    --initialize one table elements per game size
-    for i=1,self.game_size do
-      if self.gpu<0 then
-        table.insert(img_batch, torch.FloatTensor(batch_size,  self.feat_size))
-      else
-        table.insert(img_batch, torch.CudaTensor(batch_size,  self.feat_size))
-      end
-    end
-
-  --the labels per gane
-
-  local label_batch, properties
-  if self.gpu<0 then
-    label_batch =  torch.FloatTensor(batch_size, self.vocab_size)
-    properties = torch.FloatTensor(batch_size, self.game_size, self.vocab_size)
+  local split_data = self.data[split]
+  local split_iterator = self.iterators[split]
+  local split_length = self.lengths[split]
+  local batch_data = nil
+  if (split_iterator + batch_size - 1) <= split_length then
+    batch_data = split_data:sub(split_iterator, split_iterator + batch_size - 1)
   else
-    label_batch = torch.CudaTensor(batch_size, self.vocab_size)
-    properties = torch.CudaTensor(batch_size, self.game_size, self.vocab_size)
+    self.wrapped[split] = true
+    local end_batch = (split_iterator + batch_size - 2) % split_length + 1
+    local batch_data1 = split_data:sub(split_iterator, split_length)
+    local batch_data2 = split_data:sub(1, end_batch)
+    batch_data = batch_data1:cat(batch_data2, 1)
   end
-
-  local max_index = #split_ix
-  local wrapped = false
-  local infos = {}
+  local batch_x = batch_data:sub(1, batch_size, 1, self.visual_num)
+  local batch_y = batch_data:sub(1, batch_size, self.visual_num + 1, self.all_num)
   
-  for i=1,batch_size do
-
-        local ri = self.iterators[split] -- get next index from iterator
-        local ri_next = ri + 1 -- increment iterator
-        if ri_next > max_index then ri_next = 1; wrapped = true end -- wrap back around
-        self.iterators[split] = ri_next
-        ix = split_ix[ri]
-        assert(ix ~= nil, 'bug: split ' .. split .. ' was accessed out of bounds with ' .. ri)
-
-    --image representations
-    for ii=1,self.game_size do
-          -- fetch the image from h5
-          local img = self.h5_file:read('/images'):partial({ix,ix},{ii,ii},{1,self.feat_size})
-      local img_norm = torch.norm(img)
-            img = img/img_norm
-          img_batch[ii][i] = img
-      --fetch their properies
-      local inx = self.info.images[ix].concepts[ii]
-      properties[i][ii] = self.h5_file:read('/properties'):partial({inx,inx},{1,self.vocab_size})
-    end
-     
-    --labels
-    seq = torch.FloatTensor(self.feat_size)
-    seq = self.h5_file:read('/labels'):partial({ix,ix},{1,self.vocab_size}) 
-        label_batch[{ {i,i} }] = seq
-
-        -- and record associated info as well
-        local info_struct = {}
-        info_struct.id = self.info.images[ix].id
-    info_struct.concepts = self.info.images[ix].concepts
-        table.insert(infos, info_struct)
-    end
+  --print(split .. " iteration: " .. split_iterator ..  ", norm x: " .. batch_x:norm() .. ", norm y: " .. batch_y:norm())
   
-  --local data = {}
-  data.properties = properties
-    data.images = img_batch
-  data.labels = label_batch:contiguous() -- note: make label sequences go down as columns
-  data.bounds = {it_pos_now = self.iterators[split], it_max = #split_ix, wrapped = wrapped}
-    data.infos = infos
-    return data
+  split_iterator = (split_iterator + batch_size - 1) % split_length + 1
+  if (split_iterator == 1) then self.wrapped[split] = true end
+  self.iterators[split] = split_iterator
+  if self.gpu >= 0 then
+    return {batch_x:cuda(), batch_y:cuda(), self.wrapped[split]}
+  else
+    return {batch_x:contiguous(), batch_y:contiguous(), self.wrapped[split]}
+  end
 end
+
+return PropertyLoader
 
