@@ -4,6 +4,7 @@ require 'nngraph'
 -- local imports
 local utils = require 'misc.utils'
 require 'misc.DataLoader'
+require 'misc.DataLoaderSingle'
 require 'misc.LinearNB'
 
 -------------------------------------------------------------------------------
@@ -28,8 +29,8 @@ cmd:option('-num_images',3200,'How many images to use')
 cmd:option('-image_folder', '', 'If this is nonempty then will predict on the images in this folder path')
 cmd:option('-image_root', '', 'In case the image paths have to be preprended with a root path to an image folder')
 -- For evaluation on the Carina images from some split:
-cmd:option('-input_h5','../DATA/visAttCarina/processed/0shot/data.h5','path to the h5file containing the preprocessed dataset')
-cmd:option('-input_json','..//DATA/visAttCarina/processed/0shot/data.json','path to the json file containing additional info and vocab')
+cmd:option('-input_h5','../DATA/visAttCarina/processed/0shot_test/data.h5','path to the h5file containing the preprocessed dataset')
+cmd:option('-input_json','..//DATA/visAttCarina/processed/0shot_test/data.json','path to the json file containing additional info and vocab')
 cmd:option('-split', 'test', 'if running on MSCOCO images, which split to use: val|test|train')
 cmd:option('-threshold',1,'What threshold to use')
 cmd:option('-beta',1,'F_beta evaluation')
@@ -143,7 +144,7 @@ local function eval_split(split, evalopt)
 				
                         	--check if properties are correct
                         	for ii=1,checkpoint.opt.game_size do
-					local s1 = properties[ii][{{i,i},{1,opt.vocab_size}}]:clone():apply(function(x)  if x > opt.threshold  then return 0 else return 1 end end)
+					local s1 = properties[ii][{{i,i},{1,opt.vocab_size}}]:clone():apply(function(x)  if x > opt.threshold  then return 1 else return 0 end end)
                                 	local s2 = data.properties[{{i,i},{ii,ii},{1,opt.vocab_size}}]
 					 --feature wise precision, recall and F1
                                 	TP = TP + torch.sum(torch.cmul(s1,s2)) --correct

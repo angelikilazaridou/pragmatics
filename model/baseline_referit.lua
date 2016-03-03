@@ -4,6 +4,7 @@ require 'nngraph'
 require 'csvigo'
 -- local imports
 local utils = require 'misc.utils'
+require 'misc.LinearNB'
 require 'misc.DataLoaderRaw'
 
 -------------------------------------------------------------------------------
@@ -19,19 +20,13 @@ cmd:text('Options')
 cmd:option('-model','','path to model to evaluate')
 -- Basic options
 cmd:option('-batch_size', 1, 'if > 0 then overrule, otherwise load from checkpoint.')
-cmd:option('-num_images', 100, 'how many images to use when periodically evaluating the loss? (-1 = all)')
-cmd:option('-dump_images', 0, 'Dump images into vis/imgs folder for vis? (1=yes,0=no)')
-cmd:option('-dump_json', 0, 'Dump json with predictions into vis folder? (1=yes,0=no)')
-cmd:option('-dump_path', 0, 'Write image paths along with predictions into vis json? (1=yes,0=no)')
-cmd:option('-num_images',3200,'How many images to use')
--- For evaluation on a folder of images:
-cmd:option('-image_folder', '', 'If this is nonempty then will predict on the images in this folder path')
-cmd:option('-image_root', '', 'In case the image paths have to be preprended with a root path to an image folder')
 -- For evaluation on the Carina images from some split:
-cmd:option('-input_h5','/home/angeliki/git/pragmatics/DATA/referit/test_data/data_referit_1.h5','path to the h5file containing the preprocessed dataset')
+cmd:option('-input_h5','/home/angeliki/git/pragmatics/DATA/referit/test_data/data_referit_','path to the h5file containing the preprocessed dataset')
 cmd:option('-split', 'test', 'if running on MSCOCO images, which split to use: val|test|train')
 cmd:option('-threshold',1,'What threshold to use')
 cmd:option('-maxSize',20,'Balanced test set')
+cmd:option('-exclude',0,'Whether to evaluate if feature is exlcluded (precision, STRATEGY=3) or included (recall, STRATEGY=1 or2)')
+cmd:option('-strategy',1,'What dataset to evaluate on')
 -- misc
 cmd:option('-backend', 'nn', 'nn|cudnn')
 cmd:option('-id', 'evalscript', 'an id identifying this run/job. used only if language_eval = 1 for appending to intermediate files')
@@ -43,6 +38,9 @@ cmd:text()
 -- Basic Torch initializations
 -------------------------------------------------------------------------------
 local opt = cmd:parse(arg)
+opt.input_json = opt.input_h5..opt.strategy..'.json'
+opt.input_h5 = opt.input_h5..opt.strategy..'.h5'
+
 torch.manualSeed(opt.seed)
 torch.setdefaulttensortype('torch.FloatTensor') -- for CPU
 
@@ -70,11 +68,8 @@ end
 -------------------------------------------------------------------------------
 -- Create the Data Loader instance
 -------------------------------------------------------------------------------
-local loader
-if string.len(opt.image_folder) == 0 then
-	loader =  DataLoaderRaw{h5_file = opt.input_h5,  feat_size = opt.feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size, game_size = 2}
+local loader =  DataLoaderRaw{h5_file = opt.input_h5,  json_file = opt.input_json, feat_size = opt.feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size, game_size = 2}
 
-end
 
 -------------------------------------------------------------------------------
 -- Load the networks from model checkpoint
@@ -91,7 +86,7 @@ local function eval_split(split, evalopt,properties)
 
 	local balance = torch.zeros(loader:getVocabSize())
 
-	local tmp = torch.CudaTensor(1,loader:getVocabSize()):zero()
+	local tmp = torch.Tensor(1,loader:getVocabSize()):zero():cuda()
 	for i=1,tmp:size(2) do
 		tmp[1][i] = i
 	end
@@ -118,14 +113,19 @@ local function eval_split(split, evalopt,properties)
 			for i=1,opt.batch_size do
 				local skip = 0
                                 local id = torch.sum(torch.cmul(data.labels[i],tmp))
-                                if opt.maxSize >0 and balance[id]<opt.maxSize then
+                                if opt.maxSize >0 and id>0 and balance[id]<opt.maxSize  then
                                         balance[id] = balance[id]+1
                                 else
                                         skip = 1
                                 end
                                 if skip==0 then
-                        		--check if prediction of discriminativeness if correct
-					prob = prob+(2*properties[id]*(1-properties[id]))
+					if opt.exclude == 1 then
+						prob = prob + (properties[id]^2 + (1-properties[id])^2)
+					else
+                        			--check if prediction of discriminativeness if correct
+						prob = prob+(2*properties[id]*(1-properties[id]))
+					end
+			
                         		all = all+1
 				end
                 	end
@@ -133,12 +133,12 @@ local function eval_split(split, evalopt,properties)
 
                 -- if we wrapped around the split or used up val imgs budget then bail
                 local ix0 = data.bounds.it_pos_now
-                local ix1 = math.min(data.bounds.it_max, num_images)
 		
 		if data.bounds.wrapped then break end -- the split ran out of data, lets break out
                 if loss_evals % 10 == 0 then collectgarbage() end
 	end
 
+   print('Evaluated on '..all..' data')
    return prob/all
 end
 

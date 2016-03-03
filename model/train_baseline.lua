@@ -45,7 +45,7 @@ cmd:option('-checkpoint_path', '', 'folder to save checkpoints into (empty = thi
 cmd:option('-losses_log_every', 25, 'How often do we snapshot losses, for inclusion in the progress dump? (0 = disable)')
 
 -- misc
-cmd:option('-id', '', 'an id identifying this run/job. used in cross-val and appended when writing progress files')
+cmd:option('-id', 'discriminativeness', 'an id identifying this run/job. used in cross-val and appended when writing progress files')
 cmd:option('-seed', 123, 'random number generator seed to use')
 cmd:option('-gpuid', 0, 'which gpu to use. -1 = use CPU')
 cmd:option('-verbose',false,'How much info to give')

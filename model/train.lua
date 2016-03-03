@@ -21,8 +21,8 @@ cmd:text()
 cmd:text('Options')
 
 -- Data input settings
-cmd:option('-input_h5','../DATA/visAttCarina/processed/0shot_single/data.h5','path to the h5file containing the preprocessed dataset')
-cmd:option('-input_json','..//DATA/visAttCarina/processed/0shot_single/data.json','path to the json file containing additional info and vocab')
+cmd:option('-input_h5','../DATA/visAttCarina/processed/0shot_single_test/data.h5','path to the h5file containing the preprocessed dataset')
+cmd:option('-input_json','..//DATA/visAttCarina/processed/0shot_single_test/data.json','path to the json file containing additional info and vocab')
 cmd:option('-feat_size',-1,'The number of image features')
 cmd:option('-vocab_size',-1,'The number of properties')
 cmd:option('-single_images',1,'Whether to train on centroid or not')
@@ -48,7 +48,7 @@ cmd:option('-weight_decay',0,'Weight decay for L2 norm')
 -- Evaluation/Checkpointing
 cmd:option('-val_images_use', 3200, 'how many images to use when periodically evaluating the validation loss? (-1 = all)')
 cmd:option('-save_checkpoint_every', 100, 'how often to save a model checkpoint?')
-cmd:option('-checkpoint_path', 'tune_new_single/', 'folder to save checkpoints into (empty = this folder)')
+cmd:option('-checkpoint_path', 'tune/', 'folder to save checkpoints into (empty = this folder)')
 cmd:option('-losses_log_every', 25, 'How often do we snapshot losses, for inclusion in the progress dump? (0 = disable)')
 cmd:option('-beta',1,'beta for f_x')
 -- misc
