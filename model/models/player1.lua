@@ -3,8 +3,8 @@ require 'nngraph'
 require 'misc.Peek'
 require 'misc.LinearNB'
 
-local model_fast = {}
-function model_fast.model(game_size, feat_size, vocab_size, hidden_size, scale_output, gpu, k)
+local player1 = {}
+function player1.model(game_size, feat_size, vocab_size, hidden_size, scale_output, gpu, k)
 
 
 	local shareList = {}
@@ -44,12 +44,16 @@ function model_fast.model(game_size, feat_size, vocab_size, hidden_size, scale_o
 	--reshaping to batch_size x feat_size
 	local result = nn.View(-1,vocab_size)(discr)
 
+	local probs = nn.SoftMax()(result)
+
     	local outputs = {}
-	table.insert(outputs, result)
+	table.insert(outputs, probs)
+	--[[
 	--insert all property vectors
 	for i=1,game_size do
 		table.insert(outputs,all_prop_vecs[i])
 	end
+	]]--
     	
 	local model = nn.gModule(inputs, outputs)
 
@@ -66,4 +70,4 @@ function model_fast.model(game_size, feat_size, vocab_size, hidden_size, scale_o
 	return model
 end
 
-return model_fast
+return player1

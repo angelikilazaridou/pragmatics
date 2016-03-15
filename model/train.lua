@@ -6,10 +6,7 @@ local utils = require 'misc.utils'
 require 'misc.DataLoader'
 require 'misc.DataLoaderSingle'
 require 'misc.optim_updates'
-local model1 = require 'models.model1'
-local model1_fast = require 'models.model1_fast'
-local model1_fast_NB = require 'models.model1_fast_NB'
-local model1_fast_NB_hl = require 'models.model1_fast_NB_hl'
+local game = require 'misc.game'
 
 -------------------------------------------------------------------------------
 -- Input arguments and options
@@ -105,19 +102,8 @@ opt.feat_size = feat_size
 local protos = {}
 
 print(string.format('Parameters are model=%s game_size=%d feat_size=%d, vocab_size=%d\n',opt.model, game_size, feat_size,vocab_size))
--- create protos from scratch
-if opt.model == 'model1_fast' then
-        protos.model = model1_fast.model(game_size, feat_size, vocab_size, opt.hidden_size, opt.scale_output, opt.gpuid, opt.k)
-else
-	print(string.format('Wrong model:%s',opt.model))
-end
-
---add criterion
-if opt.crit == 'MSE' then
-	protos.criterion = nn.MSECriterion()
-else	
-	print(string.format('Wrong criterion: %s',opt.crit))
-end
+protos.players = game.model(opt)
+protos.criterion = nn.VRClassReward(protos.agent)
 
 -- ship criterion to GPU, model is shipped dome inside model
 if opt.gpuid >= 0 then
@@ -125,20 +111,21 @@ if opt.gpuid >= 0 then
 	protos.criterion:cuda()
 end
 
+
 -- flatten and prepare all model parameters to a single vector. 
-local params, grad_params = protos.model:getParameters()
+local params, grad_params = protos.players:getParameters()
 params:uniform(-0.08, 0.08) 
 print('total number of parameters in LM: ', params:nElement())
 assert(params:nElement() == grad_params:nElement())
 
 --parameters to regularize
 reg = {}
-reg[1] = protos.model.forwardnodes[5].data.module.weight --Linear mapping
-reg[2] = protos.model.forwardnodes[5].data.module.bias
-reg[3] = protos.model.forwardnodes[13].data.module.weight --hidden for XOR
-reg[4] = protos.model.forwardnodes[13].data.module.bias
-reg[5] = protos.model.forwardnodes[16].data.module.weight -- decision
-reg[6] = protos.model.forwardnodes[16].data.module.bias
+reg[1] = protos.agent.forwardnodes[5].data.module.weight --Linear mapping
+reg[2] = protos.agent.forwardnodes[5].data.module.bias
+reg[3] = protos.agent.forwardnodes[13].data.module.weight --hidden for XOR
+reg[4] = protos.agent.forwardnodes[13].data.module.bias
+reg[5] = protos.agent.forwardnodes[16].data.module.weight -- decision
+reg[6] = protos.agent.forwardnodes[16].data.module.bias
 
 
 collectgarbage() 
@@ -150,20 +137,13 @@ local function eval_split(split, evalopt)
   	local verbose = utils.getopt(evalopt, 'verbose', true)
   	local val_images_use = utils.getopt(evalopt, 'val_images_use', true)
 
-  	protos.model:evaluate()
+  	protos.agent:evaluate()
   	loader:resetIterator(split) -- rewind iteator back to first datapoint in the split
   	
-	local n = 0
-  	
+  	local n = 0
+	
 	local loss_sum = 0
   	local loss_evals = 0
-	 --for discriminativeness
-        local TP_D = 0
-        local TP_FN_D = 0
-        local TP_FP_D = 0
-	local sparsity = 0
-
-	local all = 0
 	
 	while true do
 
@@ -171,32 +151,23 @@ local function eval_split(split, evalopt)
     		local data = loader:getBatch{batch_size = opt.batch_size, split = split}
 
     		-- forward the model to get loss
-    		local outputs = protos.model:forward({unpack(data.images)})
-		local predicted = outputs[1]
+		local inputs = {}
+        	for i=1,#data.images do
+                	table.insert(inputs,data.images[i])
+        	end
+        	
+		local outputs = protos.players:forward(inputs)
+        	--players play the game and return the predction (L or R)
+        	local predicted_referent = outputs[1]
+        	-- forward in the criterion to get loss
+        	local loss = protos.criterion:forward(predicted_referent, data.labels)
 
-    		local loss = protos.criterion:forward(predicted, data.labels)
-		
-		--average ;oss
+ 
+		--average loss
     		loss_sum = loss_sum + loss
     		loss_evals = loss_evals + 1
 
-		--compute accuracy
-		local predicted2 = predicted:clone()
-		predicted2:apply(function(x) if x>0.5 then return 1 else return 0 end end)
-		
-		--get in a tensor the properties
-		local properties = {unpack(outputs,2)}
-		--print(properties)
-
-		--print(data.properties)
-        	for i=1,opt.batch_size do
-			--check if prediction of discriminativeness if correct
-                        TP_D = TP_D + torch.sum(torch.cmul(predicted2[i],data.labels[i]))
-                        TP_FN_D = TP_FN_D + torch.sum(data.labels[i])
-                        TP_FP_D = TP_FP_D + torch.sum(predicted2[i])
-			sparsity = sparsity + torch.sum(predicted2[i])
-			all = all+1
-		end
+		n = n+opt.batch_size
 	
     		-- if we wrapped around the split or used up val imgs budget then bail
     		local ix0 = data.bounds.it_pos_now
@@ -210,11 +181,7 @@ local function eval_split(split, evalopt)
     		if n >= val_images_use then break end -- we've used enough images
   	end
 
-	local precision_D = TP_D/TP_FP_D
-	local recall_D = TP_D/TP_FN_D
-  	local F1_D = (2 * precision_D * recall_D)/(precision_D+recall_D)
-
-	return precision_D, recall_D, F1_D, sparsity/all	
+	return loss_sum/loss_evals	
 
 end
 
@@ -223,32 +190,28 @@ end
 -------------------------------------------------------------------------------
 local iter = 0
 local function lossFun()
-	protos.model:training()
+
+	protos.players:training()
   	grad_params:zero()
 
   	-----------------------------------------------------------------------------
   	-- Forward pass
   	-----------------------------------------------------------------------------
+
   	-- get batch of data  
   	local data = loader:getBatch{batch_size = opt.batch_size, split = 'train'}
   
   
 	local inputs = {}
-	local dinputs = {}
-	--gradients for things that we do not care, i.e., the property vectors
 	for i=1,#data.images do
-		if opt.gpuid >= 0 then 
-			dinputs[i+1] = torch.CudaTensor(opt.batch_size,vocab_size):fill(0)   
-		else
-			dinputs[i+1] = torch.FloatTensor(opt.batch_size, vocab_size):fill(0)
-		end
 		table.insert(inputs,data.images[i])
 	end
-	--forward in the model to get predicions
-	local outputs = protos.model:forward(inputs)
-	local predicted = outputs[1]
+	--forward model
+	local outputs = protos.players:forward(inputs)
+	--players play the game and return the predction (L or R)
+	local predicted_referent = outputs[1]
   	-- forward in the criterion to get loss
-  	local loss = protos.criterion:forward(predicted, data.labels)
+  	local loss = protos.criterion:forward(predicted_referent, data.labels)
 
 	-----------------------------------------------------------------------------
   	-- Backward pass
@@ -257,8 +220,7 @@ local function lossFun()
   	local dpredicted = protos.criterion:backward(predicted, data.labels)
   	-- backprop through model
 	table.insert(inputs,data.labels)
-	dinputs[1] = dpredicted --add first position the gradients of predictions, along side with gradients of properties
-  	local dummy = unpack(protos.model:backward(inputs, dinputs))
+  	local dummy = unpack(protos.model:backward(inputs, {dpredicted}))
 
   	-- clip gradients
   	grad_params:clamp(-opt.grad_clip, opt.grad_clip)
