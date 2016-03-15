@@ -16,7 +16,7 @@ local model1_fast_NB_hl = require 'models.model1_fast_NB_hl'
 -------------------------------------------------------------------------------
 cmd = torch.CmdLine()
 cmd:text()
-cmd:text('Train a XOR. Why? Because :)')
+cmd:text('Model vs Oracle')
 cmd:text()
 cmd:text('Options')
 
@@ -31,10 +31,10 @@ cmd:option('-model','model1_fast','What model to use')
 cmd:option('-crit','MSE','What criterion to use')
 cmd:option('-hidden_size',20,'The hidden size of the discriminative layer')
 cmd:option('-k',1,'The slope of sigmoid')
-cmd:option('-scale_output',0,'Whether to add a sigmoid at teh output of the model')
+cmd:option('-scale_output',0,'Whether to add a sigmoid at the output of the model')
 -- Optimization: General
 cmd:option('-max_iters', 7000, 'max number of iterations to run for (-1 = run forever)')
-cmd:option('-batch_size',16,'what is the batch size in number of images per batch? (there will be x seq_per_img sentences)')
+cmd:option('-batch_size',32,'what is the batch size of games')
 cmd:option('-grad_clip',0.1,'clip gradients at this value (note should be lower than usual 5 because we normalize grads by both batch and seq_length)')
 -- Optimization: for the model
 cmd:option('-optim','adam','what update to use? rmsprop|sgd|sgdmom|adagrad|adam')
@@ -108,12 +108,6 @@ print(string.format('Parameters are model=%s game_size=%d feat_size=%d, vocab_si
 -- create protos from scratch
 if opt.model == 'model1_fast' then
         protos.model = model1_fast.model(game_size, feat_size, vocab_size, opt.hidden_size, opt.scale_output, opt.gpuid, opt.k)
-elseif opt.model == 'model1_fast_NB' then
-        protos.model = model1_fast_NB.model(game_size, feat_size, vocab_size, opt.hidden_size, opt.scale_output, opt.gpuid, opt.k)
-elseif opt.model == 'model1_fast_NB_hl' then
-        protos.model = model1_fast_NB_hl.model(game_size, feat_size, vocab_size, opt.hidden_size, opt.scale_output, opt.gpuid, opt.k)
-elseif opt.model == 'model1' then
-        protos.model = model1.model(game_size, feat_size, vocab_size, opt.hidden_size, to_share, opt.gpuid, opt.k)
 else
 	print(string.format('Wrong model:%s',opt.model))
 end
@@ -147,7 +141,7 @@ reg[5] = protos.model.forwardnodes[16].data.module.weight -- decision
 reg[6] = protos.model.forwardnodes[16].data.module.bias
 
 
-collectgarbage() -- "yeah, sure why not"
+collectgarbage() 
 
 -------------------------------------------------------------------------------
 -- Validation evaluation
@@ -158,23 +152,19 @@ local function eval_split(split, evalopt)
 
   	protos.model:evaluate()
   	loader:resetIterator(split) -- rewind iteator back to first datapoint in the split
-  	local n = 0
-  	local loss_sum = 0
+  	
+	local n = 0
+  	
+	local loss_sum = 0
   	local loss_evals = 0
-  	local predictions = {}
 	 --for discriminativeness
         local TP_D = 0
         local TP_FN_D = 0
         local TP_FP_D = 0
+	local sparsity = 0
 
 	local all = 0
-	local balance = 0
-	-- for features
-	local TP = torch.zeros(1,2)
-	local TP_FN = torch.zeros(1,2)
-	local TP_FP = torch.zeros(1,2)
-
-	local sparsity = 0	
+	
 	while true do
 
     		-- fetch a batch of data
@@ -205,24 +195,6 @@ local function eval_split(split, evalopt)
                         TP_FN_D = TP_FN_D + torch.sum(data.labels[i])
                         TP_FP_D = TP_FP_D + torch.sum(predicted2[i])
 			sparsity = sparsity + torch.sum(predicted2[i])
-
-			--check if properties are correct
-			for ii=1,game_size do
-				local s1 = properties[ii][{{i,i},{1,vocab_size}}]:clone():apply(function(x) if x >0 then return 1 else return 0 end end)
-				local s11 = properties[ii][{{i,i},{1,vocab_size}}]:clone():apply(function(x) if x >0 then return 0 else return 1 end end)			
-				local s2 = data.properties[{{i,i},{ii,ii},{1,vocab_size}}][1]  --3d
-				--feature wise
-				--compute both 0/1 cases and give the one with bigger F1
-				TP[1][1] = TP[1][1] + torch.sum(torch.cmul(s1,s2)) --correct
-				TP_FN[1][1] = TP_FN[1][1] + torch.sum(s2) --all relevant
-				TP_FP[1][1] = TP_FP[1][1] + torch.sum(s1) -- all predictions
-				
-				TP[1][2] = TP[1][2] + torch.sum(torch.cmul(s11,s2)) --correct
-                                TP_FN[1][2] = TP_FN[1][2] + torch.sum(s2) --all relevant
-                                TP_FP[1][2] = TP_FP[1][2] + torch.sum(s11) -- all predictions
-					
-			
-			end
 			all = all+1
 		end
 	
@@ -240,15 +212,9 @@ local function eval_split(split, evalopt)
 
 	local precision_D = TP_D/TP_FP_D
 	local recall_D = TP_D/TP_FN_D
-  	local F1_D = ((1+opt.beta^2) * precision_D * recall_D)/((opt.beta^2*precision_D)+recall_D)
+  	local F1_D = (2 * precision_D * recall_D)/(precision_D+recall_D)
 
-	local precision = torch.cdiv(TP,TP_FP)
-	local recall = torch.cdiv(TP,TP_FN)
-	local F1s = torch.cdiv(torch.mul(torch.cmul(precision,recall),2),torch.add(precision,recall))
-	local val,pos = torch.max(F1s,2)
-	pos = pos[1][1]
-
-	return precision_D, recall_D, F1_D, precision[1][pos], recall[1][pos], F1s[1][pos], sparsity/all	
+	return precision_D, recall_D, F1_D, sparsity/all	
 
 end
 
@@ -266,40 +232,38 @@ local function lossFun()
   	-- get batch of data  
   	local data = loader:getBatch{batch_size = opt.batch_size, split = 'train'}
   
-  	-- forward the model on images (most work happens here)
+  
 	local inputs = {}
 	local dinputs = {}
-
+	--gradients for things that we do not care, i.e., the property vectors
 	for i=1,#data.images do
-		if opt.gpuid >= 0 then  --gradients for things that we do not care, i.e., the property vectors
+		if opt.gpuid >= 0 then 
 			dinputs[i+1] = torch.CudaTensor(opt.batch_size,vocab_size):fill(0)   
 		else
 			dinputs[i+1] = torch.FloatTensor(opt.batch_size, vocab_size):fill(0)
 		end
 		table.insert(inputs,data.images[i])
 	end
-	--getting property vectoes and loss
+	--forward in the model to get predicions
 	local outputs = protos.model:forward(inputs)
 	local predicted = outputs[1]
-  	-- forward the language model criterion
+  	-- forward in the criterion to get loss
   	local loss = protos.criterion:forward(predicted, data.labels)
 
 	-----------------------------------------------------------------------------
   	-- Backward pass
   	-----------------------------------------------------------------------------
-  	-- backprop criterion
+  	-- backprop through criterion
   	local dpredicted = protos.criterion:backward(predicted, data.labels)
-  	-- backprop language model
+  	-- backprop through model
 	table.insert(inputs,data.labels)
-	dinputs[1] = dpredicted
+	dinputs[1] = dpredicted --add first position the gradients of predictions, along side with gradients of properties
   	local dummy = unpack(protos.model:backward(inputs, dinputs))
 
   	-- clip gradients
-  	-- print(string.format('claming %f%% of gradients', 100*torch.mean(torch.gt(torch.abs(grad_params), opt.grad_clip))))
   	grad_params:clamp(-opt.grad_clip, opt.grad_clip)
 
 
-  	-- and lets get out!
   	return loss
 end
 
@@ -320,19 +284,16 @@ while true do
   	-- eval loss/gradient
   	local losses = lossFun()
   	if iter % opt.losses_log_every == 0 then loss_history[iter] = losses end
-  	--print(string.format('iter %d: %f %f', iter, losses,acc))
 
   	-- save checkpoint once in a while (or on final iteration)
   	if (iter % opt.save_checkpoint_every == 0 or iter == opt.max_iters) then
 
     		-- evaluate the validation performance
-    		local precision_D, recall_D, f1_D, precision, recall, f1, sparsity = eval_split('val', {val_images_use = opt.val_images_use, verbose=opt.verbose})
+    		local precision_D, recall_D, f1_D, sparsity = eval_split('val', {val_images_use = opt.val_images_use, verbose=opt.verbose})
                 print(string.format('VALIDATION (discriminativeness) precision: %f   recall: %f   F1: %f (sparsity: %f)', precision_D, recall_D, f1_D, sparsity))
-    		print(string.format('VALIDATION (property) precision: %f   recall: %f   F1: %f', precision, recall, f1))
-		
-		precision_D, recall_D, f1_D, precision, recall, f1, sparsity = eval_split('test', {val_images_use = opt.val_images_use, verbose=opt.verbose})
+		-- evaluate test performance		
+		precision_D, recall_D, f1_D, sparsity = eval_split('test', {val_images_use = opt.val_images_use, verbose=opt.verbose})
                 print(string.format('TEST (discriminativeness) precision: %f   recall: %f   F1: %f (sparsity: %f)', precision_D, recall_D, f1_D, sparsity))
-		print(string.format('TEST (property) precision: %f   recall: %f   F1: %f', precision, recall, f1))
 		
 		--check if F1s are nan
 		if f1_D~=f1_D then
