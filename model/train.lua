@@ -77,12 +77,7 @@ end
 -------------------------------------------------------------------------------
 -- Create the Data Loader instance
 -------------------------------------------------------------------------------
-local loader 
-if opt.single_images==0 then
-	loader = DataLoader{h5_file = opt.input_h5, json_file = opt.input_json, label_format = opt.crit, feat_size = opt.feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size}
-else
-	loader =  DataLoaderSingle{h5_file = opt.input_h5, json_file = opt.input_json, label_format = opt.crit, feat_size = opt.feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size}
-end
+local loader = DataLoader{h5_file = opt.input_h5, json_file = opt.input_json,  feat_size = opt.feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size, h5_images_file = opt.input_h5_images}
 local game_size = loader:getGameSize()
 local feat_size = loader:getFeatSize()
 local vocab_size = loader:getVocabSize()
@@ -103,7 +98,7 @@ local protos = {}
 
 print(string.format('Parameters are model=%s game_size=%d feat_size=%d, vocab_size=%d\n',opt.model, game_size, feat_size,vocab_size))
 protos.players = game.model(opt)
-protos.criterion = nn.VRClassReward(protos.agent)
+protos.criterion = nn.VRClassReward(protos.players)
 
 -- ship criterion to GPU, model is shipped dome inside model
 if opt.gpuid >= 0 then
@@ -137,7 +132,7 @@ local function eval_split(split, evalopt)
   	local verbose = utils.getopt(evalopt, 'verbose', true)
   	local val_images_use = utils.getopt(evalopt, 'val_images_use', true)
 
-  	protos.agent:evaluate()
+  	protos.players:evaluate()
   	loader:resetIterator(split) -- rewind iteator back to first datapoint in the split
   	
   	local n = 0
