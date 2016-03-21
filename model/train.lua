@@ -1,12 +1,11 @@
 require 'torch'
-require 'nn'
+require 'dp'
 require 'nngraph'
 -- local imports
 local utils = require 'misc.utils'
 require 'misc.DataLoader'
-require 'misc.DataLoaderSingle'
 require 'misc.optim_updates'
-local game = require 'misc.game'
+require 'models.Players'
 
 -------------------------------------------------------------------------------
 -- Input arguments and options
@@ -18,14 +17,13 @@ cmd:text()
 cmd:text('Options')
 
 -- Data input settings
-cmd:option('-input_h5','../DATA/visAttCarina/processed/0shot_single_test/data.h5','path to the h5file containing the preprocessed dataset')
-cmd:option('-input_json','..//DATA/visAttCarina/processed/0shot_single_test/data.json','path to the json file containing additional info and vocab')
+cmd:option('-input_h5','../DATA/game/v1/data.h5','path to the h5file containing the preprocessed dataset')
+cmd:option('-input_json','../DATA/game/v1/data.json','path to the json file containing additional info and vocab')
+cmd:option('-input_h5_images','..DATA/game/v1/ALL_REFERIT.h5','path to the h5 of the referit bounding boxes')
 cmd:option('-feat_size',-1,'The number of image features')
 cmd:option('-vocab_size',-1,'The number of properties')
-cmd:option('-single_images',1,'Whether to train on centroid or not')
 -- Select model
-cmd:option('-model','model1_fast','What model to use')
-cmd:option('-crit','MSE','What criterion to use')
+cmd:option('-crit','MSE','What criterion to use: MSE|reward|hybrid')
 cmd:option('-hidden_size',20,'The hidden size of the discriminative layer')
 cmd:option('-k',1,'The slope of sigmoid')
 cmd:option('-scale_output',0,'Whether to add a sigmoid at the output of the model')
@@ -45,9 +43,8 @@ cmd:option('-weight_decay',0,'Weight decay for L2 norm')
 -- Evaluation/Checkpointing
 cmd:option('-val_images_use', 3200, 'how many images to use when periodically evaluating the validation loss? (-1 = all)')
 cmd:option('-save_checkpoint_every', 100, 'how often to save a model checkpoint?')
-cmd:option('-checkpoint_path', 'tune/', 'folder to save checkpoints into (empty = this folder)')
+cmd:option('-checkpoint_path', 'test/', 'folder to save checkpoints into (empty = this folder)')
 cmd:option('-losses_log_every', 25, 'How often do we snapshot losses, for inclusion in the progress dump? (0 = disable)')
-cmd:option('-beta',1,'beta for f_x')
 -- misc
 cmd:option('-id', '', 'an id identifying this run/job. used in cross-val and appended when writing progress files')
 cmd:option('-seed', 123, 'random number generator seed to use')
@@ -97,8 +94,19 @@ opt.feat_size = feat_size
 local protos = {}
 
 print(string.format('Parameters are model=%s game_size=%d feat_size=%d, vocab_size=%d\n',opt.model, game_size, feat_size,vocab_size))
-protos.players = game.model(opt)
-protos.criterion = nn.VRClassReward(protos.players)
+protos.players = nn.Players(opt)
+
+if opt.crit == 'reward' then
+	protos.criterion = nn.VRClassReward(protos.players)
+elseif opt.crit == 'hybrid' then
+	protos.criterion = nn.ParallelCriterion(true)
+      :add(nn.ModuleCriterion(nn.ClassNLLCriterion(), nil, nn.Convert())) -- BACKPROP
+      :add(nn.ModuleCriterion(nn.VRClassReward(agent, opt.rewardScale), nil, nn.Convert())) -- REINFORCE
+elseif opt.crit == 'MSE' then
+	protos.criterion = nn.ClassNLLCriterion()
+else
+	print(string.format('Wrog criterion: %s\n',opt.crit))
+end
 
 -- ship criterion to GPU, model is shipped dome inside model
 if opt.gpuid >= 0 then
@@ -152,7 +160,7 @@ local function eval_split(split, evalopt)
         	end
         	
 		local outputs = protos.players:forward(inputs)
-        	--players play the game and return the predction (L or R)
+        	--players play the game and return the predction (L=1 or R=2)
         	local predicted_referent = outputs[1]
         	-- forward in the criterion to get loss
         	local loss = protos.criterion:forward(predicted_referent, data.labels)
