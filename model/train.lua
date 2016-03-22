@@ -34,7 +34,7 @@ cmd:option('-batch_size',32,'what is the batch size of games')
 cmd:option('-grad_clip',0.1,'clip gradients at this value (note should be lower than usual 5 because we normalize grads by both batch and seq_length)')
 -- Optimization: for the model
 cmd:option('-optim','adam','what update to use? rmsprop|sgd|sgdmom|adagrad|adam')
-cmd:option('-learning_rate',0.001,'learning rate')
+cmd:option('-learning_rate',0.01,'learning rate')
 cmd:option('-learning_rate_decay_start', -1, 'at what iteration to start decaying learning rate? (-1 = dont)')
 cmd:option('-learning_rate_decay_every', 500, 'every how many iterations thereafter to drop LR by half?')
 cmd:option('-optim_alpha',0.8,'alpha for adagrad/rmsprop/momentum/adam')
@@ -98,7 +98,6 @@ print(string.format('Parameters are game_size=%d feat_size=%d, vocab_size=%d\n',
 protos.players = nn.Players(opt)
 
 if opt.crit == 'reward' then
-        print('Reward-based learning')
 	protos.criterion = nn.VRClassReward(protos.players,opt.rewardScale)
 elseif opt.crit == 'hybrid' then
 	protos.criterion = nn.ParallelCriterion(false)
@@ -120,19 +119,8 @@ end
 -- flatten and prepare all model parameters to a single vector. 
 local params, grad_params = protos.players:getParameters()
 params:uniform(-0.08, 0.08) 
-print('total number of parameters in LM: ', params:nElement())
+print('total number of parameters in Game: ', params:nElement())
 assert(params:nElement() == grad_params:nElement())
-
---[[
---parameters to regularize
-reg = {}
-reg[1] = protos.agent.forwardnodes[5].data.module.weight --Linear mapping
-reg[2] = protos.agent.forwardnodes[5].data.module.bias
-reg[3] = protos.agent.forwardnodes[13].data.module.weight --hidden for XOR
-reg[4] = protos.agent.forwardnodes[13].data.module.bias
-reg[5] = protos.agent.forwardnodes[16].data.module.weight -- decision
-reg[6] = protos.agent.forwardnodes[16].data.module.bias
---]]
 
 collectgarbage() 
 
@@ -153,21 +141,34 @@ local function eval_split(split, evalopt)
 	
 	while true do
 
-    		-- fetch a batch of data
-    		local data = loader:getBatch{batch_size = opt.batch_size, split = split}
 
-    		-- forward the model to get loss
-		local inputs = {}
+		-- get batch of data  
+	        local data = loader:getBatch{batch_size = opt.batch_size, split = 'train'}
+
+
+        	local inputs = {}
+        	--insert images
         	for i=1,#data.images do
                 	table.insert(inputs,data.images[i])
         	end
-        	
-		local outputs = protos.players:forward(inputs)
-        	--players play the game and return the predction (L=1 or R=2)
-        	local predicted_referent = outputs[1]
+        	--insert referrent annotation for P2
+        	table.insert(inputs, data.refs[1])
+        	table.insert(inputs, data.refs[2])
+        	--forward model
+        	local outputs = protos.players:forward(inputs)
         	-- forward in the criterion to get loss
-        	local loss = protos.criterion:forward(predicted_referent, data.labels)
+        	local gold
+        	if opt.crit == 'MSE' then
+                	gold = data.discriminativeness
+        	elseif opt.crit == 'reward' then
+                	gold = data.referent_position
+       		else
+                	gold = {data.discriminativeness, data.referent_position}
+	        end
 
+        	local loss = protos.criterion:forward(outputs, gold)
+		--print(torch.sum(gold,2))
+		--print(loss)
  
 		--average loss
     		loss_sum = loss_sum + loss
@@ -209,7 +210,7 @@ local function lossFun()
   
   
 	local inputs = {}
-	--insert images
+	--compile input to players
 	for i=1,#data.images do
 		table.insert(inputs,data.images[i])
 	end
@@ -219,27 +220,29 @@ local function lossFun()
 
 	--forward model
 	local outputs = protos.players:forward(inputs)
-  	-- forward in the criterion to get loss
+  	
+	--compile gold data
 	local gold
 	if opt.crit == 'MSE' then
 		gold = data.discriminativeness
-		print(gold:size())
 	elseif opt.crit == 'reward' then
-		gold = data.labels
+		gold = data.referent_position
 	else
-		gold = {data.discriminativeness, data.labels}
+		gold = {data.discriminativeness, data.referent_position}
 	end
 	
+	--forward in criterion to get loss
   	local loss = protos.criterion:forward(outputs, gold)
 
+	--print(torch.sum(gold,2))
 	-----------------------------------------------------------------------------
   	-- Backward pass
   	-----------------------------------------------------------------------------
   	-- backprop through criterion
   	local dpredicted = protos.criterion:backward(outputs, gold)
+
   	-- backprop through model
-	table.insert(inputs,data.labels)
-  	local dummy = unpack(protos.players:backward(inputs, {dpredicted}))
+  	local dummy = protos.players:backward(inputs, {dpredicted})
 
   	-- clip gradients
   	grad_params:clamp(-opt.grad_clip, opt.grad_clip)
@@ -269,23 +272,17 @@ while true do
   	-- save checkpoint once in a while (or on final iteration)
   	if (iter % opt.save_checkpoint_every == 0 or iter == opt.max_iters) then
 
+		print(string.format('Training loss %f',losses))
     		-- evaluate the validation performance
-    		local precision_D, recall_D, f1_D, sparsity = eval_split('val', {val_images_use = opt.val_images_use, verbose=opt.verbose})
-                print(string.format('VALIDATION (discriminativeness) precision: %f   recall: %f   F1: %f (sparsity: %f)', precision_D, recall_D, f1_D, sparsity))
+    		local loss= eval_split('val', {val_images_use = opt.val_images_use, verbose=opt.verbose})
+                print(string.format('VALIDATION loss: %f', loss))
 		-- evaluate test performance		
-		precision_D, recall_D, f1_D, sparsity = eval_split('test', {val_images_use = opt.val_images_use, verbose=opt.verbose})
-                print(string.format('TEST (discriminativeness) precision: %f   recall: %f   F1: %f (sparsity: %f)', precision_D, recall_D, f1_D, sparsity))
+		--loss= eval_split('test', {val_images_use = opt.val_images_use, verbose=opt.verbose})
+                --print(string.format('TEST loss: %f', loss))
 		
-		--check if F1s are nan
-		if f1_D~=f1_D then
-			f1_D = 0
-		end
 		--keep test score for now
-		val_acc_history[iter] = f1_D
-		if f1~=f1 then
-			f1 = 0
-		end
-		val_prop_acc_history[iter] = f1
+		val_acc_history[iter] = loss
+		val_prop_acc_history[iter] = loss
 
 
 
@@ -302,7 +299,7 @@ while true do
     		print('wrote json checkpoint to ' .. checkpoint_path .. '.json')
 
     		-- write the full model checkpoint as well if we did better than ever
-    		local current_score = f1_D
+    		local current_score = loss
     
 		if best_score == nil or current_score >= best_score then
       			best_score = current_score
@@ -347,18 +344,11 @@ while true do
     		error('bad option opt.optim')
   	end
 
-	--apply normalization after param update
-	if opt.weight_decay >0 then
-		for _,w in ipairs(reg) do
-      			w:add(-(opt.weight_decay*learning_rate), w)
-   		end
-	end
-
   	-- stopping criterions
   	iter = iter + 1
   	if iter % 10 == 0 then collectgarbage() end -- good idea to do this once in a while, i think
   	if loss0 == nil then loss0 = losses end
-  	if losses > loss0 * 20 then
+  	if losses < loss0 * 20 then
     		print('loss seems to be exploding, quitting.')
     		break
   	end

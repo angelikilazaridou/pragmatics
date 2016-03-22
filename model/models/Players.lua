@@ -1,4 +1,5 @@
 require 'dpnn'
+require 'nn'
 
 local player1 = require 'models.player1'
 require 'models.Oracle_P2'
@@ -41,9 +42,9 @@ function players:updateGradInput(input, gradOutput)
                 dbaseline = torch.CudaTensor(self.batch_size,1):fill(0)
 		dfeats_SM = gradOutput[1]
         else
-		dfeats_SM = gradOutput[1]
-               	dbaseline = gradOutput[2][2]
-		dprediction = gradOutput[2][1] --  but it's 0 really
+		dfeats_SM = gradOutput[1][1]
+               	dbaseline = gradOutput[1][2][2]
+		dprediction = gradOutput[1][2][1] --  but it's 0 really
         end
 
 	--backprop through baseline
@@ -80,8 +81,6 @@ function players:updateOutput(input)
 	self.feats_SM = outputs[2]
 	self.sampled_feat = self.selection:forward(self.feats_SM)
 
-	print('Sampled feature')
-	print(self.sampled_feat)
 
 	-- player 2 receives 2 images and 1 feature
 	-- does a forward pass and gives back the id of the image
@@ -93,9 +92,9 @@ function players:updateOutput(input)
 	if self.crit == 'reward' then
 		self.output = {prediction, baseline}
 	elseif self.crit == 'MSE' then
-		self.output = self.feats_logSM
+		self.output = self.feats_SM
 	else
-		self.output = {self.feats_logSM, {prediction, baseline}}
+		self.output = {self.feats_SM, {prediction, baseline}}
 	end
 		
 	return self.output
@@ -112,6 +111,10 @@ function players:training()
         self.baseline:training()
 	self.selection:training()
 
+end
+
+function players:reinforce(reward)
+	self.selection:reinforce(reward)
 end
 
 function players:parameters()

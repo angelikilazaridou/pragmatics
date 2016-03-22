@@ -1,7 +1,6 @@
-require 'nn' 
-require 'nngraph'
 require 'misc.Peek'
-require 'misc.LinearNB'
+require 'nngraph'
+require 'dp'
 
 local player1 = {}
 function player1.model(game_size, feat_size, vocab_size, hidden_size, scale_output, gpu, k)

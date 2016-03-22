@@ -8,6 +8,7 @@ function DataLoader:__init(opt)
 	-- load the json file which contains additional information about the dataset
 	print('DataLoader loading json file: ', opt.json_file)
 	self.info = utils.read_json(opt.json_file)
+	self.vocab = self.info.ix_to_word
 	self.gpu = opt.gpu
   	self.vocab_size = self.info.vocab_size 
 	self.game_size = opt.game_size
@@ -124,21 +125,34 @@ function DataLoader:getBatch(opt)
 
 		--image representations
 		for ii=1,self.game_size do
-    			-- fetch the image from h5
+    			-- fetch bounding box id of images
 			local bb
 			if ii==1 then
 				bb = self.info.refs[ix].bb1_i
 			else
 				bb = self.info.refs[ix].bb2_i
 			end
+			--fetch respective image -- NOTE: transposed images
     			local img = self.h5_images_file:read('/images'):partial({1,self.feat_size},{bb,bb}):transpose(1,2)
+			--normalize to unit norm
 			local img_norm = torch.norm(img)
 	       		img = img/img_norm
+			--finally store image
     			img_batch[ii][i] = img
 		end
+
 		--fetch discriminativeness 
-		local discr = self.h5_file:read('/labels'):partial({ix,ix},{1,self.vocab_size})
-    		
+		discriminativeness[i] = self.h5_file:read('/labels'):partial({ix,ix},{1,self.vocab_size})
+    	
+		--[[	
+		local d = 0
+		for k=1,self.vocab_size do
+			if discr[1][k] == 1 then
+				print(string.format('R:%s vs C:%s have %s',self.info.refs[ix].bb1,self.info.refs[ix].bb2,self.vocab[tostring(k)]))
+			end
+		end
+		]]--
+
 		----  create data for P2
 		local referent_position = torch.random(self.game_size)  --- pick where to place the referent 
 		---- labels
@@ -153,7 +167,7 @@ function DataLoader:getBatch(opt)
 	data.discriminativeness = discriminativeness
   	data.images = img_batch
 	data.refs = refs
-	data.labels = label_batch:contiguous() -- note: make label sequences go down as columns
+	data.referent_position = label_batch:contiguous() -- note: make label sequences go down as columns
 	data.bounds = {it_pos_now = self.iterators[split], it_max = #split_ix, wrapped = wrapped}
   	return data
 end
