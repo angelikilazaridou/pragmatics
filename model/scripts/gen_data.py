@@ -62,26 +62,26 @@ def encode_expressions(data, params, wtoi):
 	encode all referrings into one large array, which will be 1-indexed.
 	"""
 
-	max_length = params['max_len']
+	vocab_size = len(wtoi)
   	N = len(data)
 	label_arrays = []
-	label_start_ix = np.zeros(N, dtype='uint32') # note: these will be one-indexed
 	ref_arrays = []
 
 	for i,d in enumerate(data):
-		Li = np.zeros((1,2, max_length), dtype='uint32')
+		### wtoi[w]-1 because 1-index vocab
+		Li = np.zeros((1,2, vocab_size), dtype='uint32')
 		#add RE1
 		for k,w in enumerate(d['RE1'].split()):
-          		Li[0,0,k] = wtoi[w]
+          		Li[0,0,wtoi[w]-1] = 1
 		#add RE2
 		for k,w in enumerate(d['RE2'].split()):
-                        Li[0,1,k] = wtoi[w]
+                        Li[0,1,wtoi[w]-1] = 1
 		ref_arrays.append(Li)
 
-		Li2 = np.zeros((1,max_length),dtype='uint32')
+		Li2 = np.zeros((1,vocab_size),dtype='uint32')
 		#add discr
                 for k,w in enumerate(d['discr'].split()):
-                        Li2[0,k] = wtoi[w]
+                        Li2[0,wtoi[w]-1] = 1
     		label_arrays.append(Li2)
 
   	L1 = np.concatenate(label_arrays, axis=0) # put all the labels together
@@ -155,6 +155,7 @@ def main(params):
 	out = {}
 	out['ix_to_word'] = itow # encode the (1-indexed) vocab
 	out['refs'] = data_new
+	out['vocab_size'] = len(itow)
   
 	json.dump(out, open(params['output_json'], 'w'))
 	print 'wrote ', params['output_json']
@@ -165,7 +166,7 @@ if __name__ == "__main__":
 
 	# input json
 	#distractors.json
-	parser.add_argument('--input_json', required=True, help='input json file to process into hdf5')
+	parser.add_argument('--input_json', default='~/sas_adam/DATA_2/selected.json', help='input json file to process into hdf5')
 	parser.add_argument('--num_val', default=1000, type=int, help='number of images to assign to validation data (for CV etc)')
 	parser.add_argument('--output_json', default='data.json', help='output json file')
 	parser.add_argument('--output_h5', default='data.h5', help='output h5 file')

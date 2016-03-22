@@ -45,9 +45,12 @@ function player1.model(game_size, feat_size, vocab_size, hidden_size, scale_outp
 	local result = nn.View(-1,vocab_size)(discr)
 
 	local probs = nn.SoftMax()(result)
+	local log_probs = nn.LogSoftMax()(result)
 
     	local outputs = {}
+	table.insert(outputs, log_probs)
 	table.insert(outputs, probs)
+	
 	--[[
 	--insert all property vectors
 	for i=1,game_size do

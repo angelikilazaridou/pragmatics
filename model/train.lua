@@ -1,6 +1,6 @@
 require 'torch'
-require 'dp'
-require 'nngraph'
+require 'rnn'
+require 'dpnn'
 -- local imports
 local utils = require 'misc.utils'
 require 'misc.DataLoader'
@@ -22,6 +22,7 @@ cmd:option('-input_json','../DATA/game/v1/data.json','path to the json file cont
 cmd:option('-input_h5_images','..DATA/game/v1/ALL_REFERIT.h5','path to the h5 of the referit bounding boxes')
 cmd:option('-feat_size',-1,'The number of image features')
 cmd:option('-vocab_size',-1,'The number of properties')
+cmd:option('-game_size','2','Number of images in the game')
 -- Select model
 cmd:option('-crit','MSE','What criterion to use: MSE|reward|hybrid')
 cmd:option('-hidden_size',20,'The hidden size of the discriminative layer')
@@ -40,6 +41,7 @@ cmd:option('-optim_alpha',0.8,'alpha for adagrad/rmsprop/momentum/adam')
 cmd:option('-optim_beta',0.999,'beta used for adam')
 cmd:option('-optim_epsilon',1e-8,'epsilon that goes into denominator for smoothing')
 cmd:option('-weight_decay',0,'Weight decay for L2 norm')
+cmd:option('-rewardScale','1','Scaling alpha of the reward')
 -- Evaluation/Checkpointing
 cmd:option('-val_images_use', 3200, 'how many images to use when periodically evaluating the validation loss? (-1 = all)')
 cmd:option('-save_checkpoint_every', 100, 'how often to save a model checkpoint?')
@@ -58,7 +60,7 @@ cmd:text()
 -- Basic Torch initializations
 -------------------------------------------------------------------------------
 local opt = cmd:parse(arg)
-opt.id = '_'..opt.model..'_h@'..opt.hidden_size..'_k@'..'_scOut@'..opt.scale_output..'_w@'..opt.weight_decay..'_lr@'..opt.learning_rate..'_dlr@'..opt.learning_rate_decay_every
+opt.id = '_h@'..opt.hidden_size..'_k@'..'_scOut@'..opt.scale_output..'_w@'..opt.weight_decay..'_lr@'..opt.learning_rate..'_dlr@'..opt.learning_rate_decay_every
 
 
 torch.manualSeed(opt.seed)
@@ -74,7 +76,7 @@ end
 -------------------------------------------------------------------------------
 -- Create the Data Loader instance
 -------------------------------------------------------------------------------
-local loader = DataLoader{h5_file = opt.input_h5, json_file = opt.input_json,  feat_size = opt.feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size, h5_images_file = opt.input_h5_images}
+local loader = DataLoader{h5_file = opt.input_h5, json_file = opt.input_json,  feat_size = opt.feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size, h5_images_file = opt.input_h5_images, game_size = opt.game_size}
 local game_size = loader:getGameSize()
 local feat_size = loader:getFeatSize()
 local vocab_size = loader:getVocabSize()
@@ -87,23 +89,22 @@ opt.vocab_size = vocab_size
 opt.game_size = game_size
 opt.feat_size = feat_size
 
-
 -------------------------------------------------------------------------------
 -- Initialize the network
 -------------------------------------------------------------------------------
 local protos = {}
 
-print(string.format('Parameters are model=%s game_size=%d feat_size=%d, vocab_size=%d\n',opt.model, game_size, feat_size,vocab_size))
+print(string.format('Parameters are game_size=%d feat_size=%d, vocab_size=%d\n', game_size, feat_size,vocab_size))
 protos.players = nn.Players(opt)
 
 if opt.crit == 'reward' then
-	protos.criterion = nn.VRClassReward(protos.players)
+	protos.criterion = nn.VRClassReward(protos.players,opt.rewardScale)
 elseif opt.crit == 'hybrid' then
-	protos.criterion = nn.ParallelCriterion(true)
-      :add(nn.ModuleCriterion(nn.ClassNLLCriterion(), nil, nn.Convert())) -- BACKPROP
-      :add(nn.ModuleCriterion(nn.VRClassReward(agent, opt.rewardScale), nil, nn.Convert())) -- REINFORCE
+	protos.criterion = nn.ParallelCriterion(false)
+      :add(nn.MSECriterion()) -- BACKPROP
+      :add(nn.VRClassReward(agent, opt.rewardScale)) -- REINFORCE
 elseif opt.crit == 'MSE' then
-	protos.criterion = nn.ClassNLLCriterion()
+	protos.criterion = nn.MSECriterion()
 else
 	print(string.format('Wrog criterion: %s\n',opt.crit))
 end
@@ -121,6 +122,7 @@ params:uniform(-0.08, 0.08)
 print('total number of parameters in LM: ', params:nElement())
 assert(params:nElement() == grad_params:nElement())
 
+--[[
 --parameters to regularize
 reg = {}
 reg[1] = protos.agent.forwardnodes[5].data.module.weight --Linear mapping
@@ -129,7 +131,7 @@ reg[3] = protos.agent.forwardnodes[13].data.module.weight --hidden for XOR
 reg[4] = protos.agent.forwardnodes[13].data.module.bias
 reg[5] = protos.agent.forwardnodes[16].data.module.weight -- decision
 reg[6] = protos.agent.forwardnodes[16].data.module.bias
-
+--]]
 
 collectgarbage() 
 
@@ -194,7 +196,7 @@ end
 local iter = 0
 local function lossFun()
 
-	protos.players:training()
+	--protos.players:training()
   	grad_params:zero()
 
   	-----------------------------------------------------------------------------
@@ -206,24 +208,37 @@ local function lossFun()
   
   
 	local inputs = {}
+	--insert images
 	for i=1,#data.images do
 		table.insert(inputs,data.images[i])
 	end
+	--insert referrent annotation for P2
+	table.insert(inputs, data.refs[1])
+	table.insert(inputs, data.refs[2])
+
 	--forward model
 	local outputs = protos.players:forward(inputs)
-	--players play the game and return the predction (L or R)
-	local predicted_referent = outputs[1]
   	-- forward in the criterion to get loss
-  	local loss = protos.criterion:forward(predicted_referent, data.labels)
+	local gold
+	if opt.crit == 'MSE' then
+		gold = data.discriminativeness
+		print(gold:size())
+	elseif opt.crit == 'reward' then
+		gold = data.labels
+	else
+		gold = {data.discriminativeness, data.labels}
+	end
+	
+  	local loss = protos.criterion:forward(outputs, gold)
 
 	-----------------------------------------------------------------------------
   	-- Backward pass
   	-----------------------------------------------------------------------------
   	-- backprop through criterion
-  	local dpredicted = protos.criterion:backward(predicted, data.labels)
+  	local dpredicted = protos.criterion:backward(outputs, gold)
   	-- backprop through model
 	table.insert(inputs,data.labels)
-  	local dummy = unpack(protos.model:backward(inputs, {dpredicted}))
+  	local dummy = unpack(protos.players:backward(inputs, {dpredicted}))
 
   	-- clip gradients
   	grad_params:clamp(-opt.grad_clip, opt.grad_clip)

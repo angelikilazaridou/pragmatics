@@ -26,9 +26,9 @@ function DataLoader:__init(opt)
   	-- extract image size from dataset
   	local images_size = self.h5_images_file:read('/images'):dataspaceSize()
   	assert(#images_size == 2, '/images should be a 2D tensor')
-  	self.num_images = images_size[1]
+  	self.num_images = images_size[2]
 	if opt.feat_size == -1 then
-		self.feat_size = images_size[2]
+		self.feat_size = images_size[1]
 	else
 		self.feat_size = opt.feat_size
 	end
@@ -88,22 +88,25 @@ function DataLoader:getBatch(opt)
 
   	-- the images
   	local img_batch = {} 
-  	for i=1,self.game_size*2 do -- p1 always has referent on position 1, shuffle for p2
+	local refs = {}
+  	for i=1,self.game_size do 
 		if self.gpu<0 then
     			table.insert(img_batch, torch.FloatTensor(batch_size,  self.feat_size))
+			table.insert(refs,torch.FloatTensor(batch_size, self.vocab_size):fill(0))
 		else
 			table.insert(img_batch, torch.CudaTensor(batch_size,  self.feat_size))
+			table.insert(refs,torch.CudaTensor(batch_size, self.vocab_size):fill(0))
 		end
   	end
 
 	--the labels per game
-	local label_batch, properties
+	local label_batch
 	if self.gpu<0 then
 		label_batch =  torch.FloatTensor(batch_size, 1)
-		discriminativeness = torch.FloatTensor(batch_size, self.vocab_size)
+		discriminativeness = torch.FloatTensor(batch_size, self.vocab_size):fill(0)
 	else
 		label_batch = torch.CudaTensor(batch_size, 1)
-		discriminativeness = torch.CudaTensor(batch_size, self.vocab_size)
+		discriminativeness = torch.CudaTensor(batch_size, self.vocab_size):fill(0)
 	end
 
 	local max_index = #split_ix
@@ -128,32 +131,28 @@ function DataLoader:getBatch(opt)
 			else
 				bb = self.info.refs[ix].bb2_i
 			end
-    			local img = self.h5_file:read('/images'):partial({bb,bb},{1,self.feat_size})
+    			local img = self.h5_images_file:read('/images'):partial({1,self.feat_size},{bb,bb}):transpose(1,2)
 			local img_norm = torch.norm(img)
 	       		img = img/img_norm
     			img_batch[ii][i] = img
-			
 		end
 		--fetch discriminativeness 
-		local discr = self.h5_file:read('/labels'):partial({ix,ix},{1,self.max_size})
-		for j=1,self.max_size do
-			--convert sparse to dense format
-			local k = discr[1][j]
-			if k==0 then
-				break
-			end
-			discriminativeness[i][k]= 1
-		end
-    	
+		local discr = self.h5_file:read('/labels'):partial({ix,ix},{1,self.vocab_size})
+    		
+		----  create data for P2
 		local referent_position = torch.random(self.game_size)  --- pick where to place the referent 
-		--labels
+		---- labels
     		label_batch[{ {i,i} }] = referent_position
-		img_batch[ii][3] = img_batch[ii][(((referent_position%2)+1)%2)+1] --if ref == 1 -> 1 else 2
-		img_batch[ii][4] = img_batch[ii][(((referent_position%2)+2)%2)+1] --if ref == 1 -> 2 else 1
+		---- assign shuffled data for P2
+		--local pos1 = (((referent_position%2)+1)%2)+1  --if ref == 1 -> 1 else 2
+		--local pos2 = (((referent_position%2)+2)%2)+1  --if ref == 1 -> 2 else 1
+		refs[((referent_position+1)%2)+1][i] = self.h5_file:read('/refs'):partial({ix,ix},{1,1},{1,self.vocab_size})
+		refs[((referent_position+2)%2)+1][i] = self.h5_file:read('/refs'):partial({ix,ix},{2,2},{1,self.vocab_size})
 
   	end
 	data.discriminativeness = discriminativeness
   	data.images = img_batch
+	data.refs = refs
 	data.labels = label_batch:contiguous() -- note: make label sequences go down as columns
 	data.bounds = {it_pos_now = self.iterators[split], it_max = #split_ix, wrapped = wrapped}
   	return data
