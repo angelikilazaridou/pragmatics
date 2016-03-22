@@ -98,11 +98,12 @@ print(string.format('Parameters are game_size=%d feat_size=%d, vocab_size=%d\n',
 protos.players = nn.Players(opt)
 
 if opt.crit == 'reward' then
+        print('Reward-based learning')
 	protos.criterion = nn.VRClassReward(protos.players,opt.rewardScale)
 elseif opt.crit == 'hybrid' then
 	protos.criterion = nn.ParallelCriterion(false)
       :add(nn.MSECriterion()) -- BACKPROP
-      :add(nn.VRClassReward(agent, opt.rewardScale)) -- REINFORCE
+      :add(nn.VRClassReward(protos.players, opt.rewardScale)) -- REINFORCE
 elseif opt.crit == 'MSE' then
 	protos.criterion = nn.MSECriterion()
 else
@@ -196,7 +197,7 @@ end
 local iter = 0
 local function lossFun()
 
-	--protos.players:training()
+	protos.players:training()
   	grad_params:zero()
 
   	-----------------------------------------------------------------------------

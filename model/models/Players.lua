@@ -14,9 +14,11 @@ function players:__init(opt)
 	self.vocab_size = opt.vocab_size
 	self.crit = opt.crit
 	self.game_size = opt.game_size
+
 	--defining the two players
 	self.player1 = player1.model(opt.game_size, opt.feat_size, opt.vocab_size, opt.hidden_size, opt.scale_output, opt.gpuid, opt.k) 
 	self.player2 = nn.Oracle_P2(self.batch_size, self.vocab_size)
+
 	-- categorical for selection of feature
 	self.selection = nn.ReinforceCategorical(true):cuda()
 	-- baseline 
@@ -101,22 +103,21 @@ end
 
 
 function players:evaluate()
-	for k,v in pairs(self.player1) do v:evaluate() end
-	for k,v in pairs(self.baseline) do v:evaluate() end
-	for k,v in pairs(seld.selection) do v:evaluate() end
+	self.player1:evaluate()
+	self.baseline:evaluate()
 end
 
 function players:training()
-	for k,v in pairs(self.player1) do v:training() end
-        for k,v in pairs(self.baseline) do v:training() end
-        for k,v in pairs(seld.selection) do v:training() end
+	self.player1:training()
+        self.baseline:training()
+	self.selection:training()
 
 end
 
 function players:parameters()
   	local p1,g1 = self.player1:parameters()
 	local p2,g2 = self.baseline:parameters()
-
+	
 	local params = {}
 	for k,v in pairs(p1) do table.insert(params, v) end
 	for k,v in pairs(p2) do table.insert(params, v) end
