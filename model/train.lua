@@ -103,8 +103,10 @@ elseif opt.crit == 'hybrid' then
 	protos.criterion = nn.ParallelCriterion(false)
       :add(nn.MSECriterion()) -- BACKPROP
       :add(nn.VRClassReward(protos.players, opt.rewardScale)) -- REINFORCE
-elseif opt.crit == 'MSE' then
+elseif opt.crit == 'MSE'  then
 	protos.criterion = nn.MSECriterion()
+elseif opt.crit == 'MSE_comm' then
+	protos.criterion = nn.CrossEntropyCriterion()
 else
 	print(string.format('Wrog criterion: %s\n',opt.crit))
 end
@@ -138,6 +140,8 @@ local function eval_split(split, evalopt)
 	
 	local loss_sum = 0
   	local loss_evals = 0
+
+	local acc = 0
 	
 	while true do
 
@@ -157,18 +161,38 @@ local function eval_split(split, evalopt)
         	--forward model
         	local outputs = protos.players:forward(inputs)
         	-- forward in the criterion to get loss
-        	local gold
+        	local gold, predicted_discriminativeness
         	if opt.crit == 'MSE' then
                 	gold = data.discriminativeness
+			predicted_discriminativeness = outputs
+			acc = acc+(torch.sum(torch.cmul(predicted_discriminativeness,data.discriminativeness))/opt.batch_size)
+		elseif opt.crit == 'MSE_comm' then
+			gold = data.referent_position
+			predicted = outputs
+			for jj=1,opt.batch_size do
+				if predicted[jj][gold[jj][1]]==1 then	
+					acc = acc+1
+				end	
+			end
+			acc = acc/opt.batch_size 
         	elseif opt.crit == 'reward' then
                 	gold = data.referent_position
-       		else
+       			predicted = outputs[1]
+                        for jj=1,opt.batch_size do
+                                if predicted[jj][gold[jj][1]]==1 then
+                                        acc = acc+1
+                                end
+                        end
+                        acc = acc/opt.batch_size
+		else
                 	gold = {data.discriminativeness, data.referent_position}
+			predicted_discriminativeness = outputs[1]
 	        end
 
         	local loss = protos.criterion:forward(outputs, gold)
 		--print(torch.sum(gold,2))
 		--print(loss)
+
  
 		--average loss
     		loss_sum = loss_sum + loss
@@ -188,7 +212,7 @@ local function eval_split(split, evalopt)
     		if n >= val_images_use then break end -- we've used enough images
   	end
 
-	return loss_sum/loss_evals	
+	return loss_sum/loss_evals, acc/loss_evals
 
 end
 
@@ -227,10 +251,12 @@ local function lossFun()
 		gold = data.discriminativeness
 	elseif opt.crit == 'reward' then
 		gold = data.referent_position
-	else
+	elseif opt.crit == 'hybrid' then
 		gold = {data.discriminativeness, data.referent_position}
+	else
+		gold = data.referent_position
 	end
-	
+
 	--forward in criterion to get loss
   	local loss = protos.criterion:forward(outputs, gold)
 
@@ -274,8 +300,8 @@ while true do
 
 		print(string.format('Training loss %f',losses))
     		-- evaluate the validation performance
-    		local loss= eval_split('val', {val_images_use = opt.val_images_use, verbose=opt.verbose})
-                print(string.format('VALIDATION loss: %f', loss))
+    		local loss,acc = eval_split('val', {val_images_use = opt.val_images_use, verbose=opt.verbose})
+                print(string.format('VALIDATION loss: %f and accuracy: %f', loss,acc))
 		-- evaluate test performance		
 		--loss= eval_split('test', {val_images_use = opt.val_images_use, verbose=opt.verbose})
                 --print(string.format('TEST loss: %f', loss))

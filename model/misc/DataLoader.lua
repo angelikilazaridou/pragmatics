@@ -143,7 +143,11 @@ function DataLoader:getBatch(opt)
 
 		--fetch discriminativeness 
 		discriminativeness[i] = self.h5_file:read('/labels'):partial({ix,ix},{1,self.vocab_size})
-    	
+		local den = torch.sum(discriminativeness[i])
+		if den > 0 then
+			discriminativeness[i] = discriminativeness[i] /den
+		end
+
 		--[[	
 		local d = 0
 		for k=1,self.vocab_size do

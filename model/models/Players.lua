@@ -41,10 +41,14 @@ function players:updateGradInput(input, gradOutput)
 		dprediction = torch.CudaTensor(self.batch_size, self.game_size):fill(0)
                 dbaseline = torch.CudaTensor(self.batch_size,1):fill(0)
 		dfeats_SM = gradOutput[1]
-        else
+        elseif self.crit == 'hybrid' then
 		dfeats_SM = gradOutput[1][1]
                	dbaseline = gradOutput[1][2][2]
 		dprediction = gradOutput[1][2][1] --  but it's 0 really
+	else
+		dprediction = gradOutput[1]
+		dbaseline = torch.CudaTensor(self.batch_size,1):fill(0)
+		dfeats_SM = torch.CudaTensor(self.batch_size, self.vocab_size):fill(0)
         end
 
 	--backprop through baseline
@@ -54,7 +58,11 @@ function players:updateGradInput(input, gradOutput)
 	--backprop through player 2 is not really possible, just need to generate a 0 gradient for the selection module
 	--the doutput_p2 are basically zeros
 	local dsampled_feats = torch.CudaTensor(self.batch_size, self.vocab_size):fill(0)
-	dfeats_SM = dfeats_SM + self.selection:backward(self.feats_SM, dsampled_feats)
+	
+	-- get feature if reward based learning
+        if self.crit == 'reward' or self.crit == 'hybrid' then
+		dfeats_SM = dfeats_SM + self.selection:backward(self.feats_SM, dsampled_feats)
+	end
 
 	--backrprop through player 1
 	dummy = self.player1:backward({input[1],input[2]},{dfeats_SM, dsampled_feats})
@@ -79,7 +87,13 @@ function players:updateOutput(input)
 	local outputs = self.player1:forward({input[1],input[2]})
 	self.feats_logSM = outputs[1]
 	self.feats_SM = outputs[2]
-	self.sampled_feat = self.selection:forward(self.feats_SM)
+	
+	-- get feature if reward based learning
+	if self.crit == 'reward' or self.crit == 'hybrid' then
+		self.sampled_feat = self.selection:forward(self.feats_SM)
+	else
+		self.sampled_feat = self.feats_SM
+	end
 
 
 	-- player 2 receives 2 images and 1 feature
@@ -93,8 +107,10 @@ function players:updateOutput(input)
 		self.output = {prediction, baseline}
 	elseif self.crit == 'MSE' then
 		self.output = self.feats_SM
-	else
+	elseif self.crit == 'hybrid' then
 		self.output = {self.feats_SM, {prediction, baseline}}
+	else
+		self.output = prediction
 	end
 		
 	return self.output
