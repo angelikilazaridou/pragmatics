@@ -3,7 +3,7 @@ require 'nngraph'
 require 'dp'
 
 local player1 = {}
-function player1.model(game_size, feat_size, vocab_size, hidden_size, scale_output, gpu, k)
+function player1.model(game_size, feat_size, vocab_size, hidden_size, gpu)
 
 
 	local shareList = {}
@@ -25,6 +25,7 @@ function player1.model(game_size, feat_size, vocab_size, hidden_size, scale_outp
 
 	end
 
+
 	-- Then convert to 3d -> batch_size x 2 x feat_size
 	local properties_3d = nn.View(2,-1):setNumInputDims(1)(nn.JoinTable(2)(all_prop_vecs))
 	-- convert to batch_size * feat_size x 2
@@ -32,31 +33,20 @@ function player1.model(game_size, feat_size, vocab_size, hidden_size, scale_outp
 	
 	--hidden layer for discriminativeness
 	local hid = nn.Linear(game_size, hidden_size)(properties_3d_b)
-	hid =  nn.Sigmoid()(nn.MulConstant(1)(hid))
+	hid =  nn.Sigmoid()(hid)
 	
 	--compute discriminativeness
 	local discr = nn.Linear(hidden_size,1)(hid)
-	if scale_output ==1 then
-		discr = nn.Sigmoid()(nn.MulConstant(k)(discr))
-	end
 	
 	--reshaping to batch_size x feat_size
 	local result = nn.View(-1,vocab_size)(discr)
-
+	-- probabilities over discriminative
 	local probs = nn.SoftMax()(result)
-	local log_probs = nn.LogSoftMax()(result)
-
+	--take out discriminative 
     	local outputs = {}
-	table.insert(outputs, log_probs)
 	table.insert(outputs, probs)
 	
-	--[[
-	--insert all property vectors
-	for i=1,game_size do
-		table.insert(outputs,all_prop_vecs[i])
-	end
-	]]--
-    	
+
 	local model = nn.gModule(inputs, outputs)
 
 	if gpu>=0 then model:cuda() end

@@ -17,22 +17,23 @@ cmd:text()
 cmd:text('Options')
 
 -- Data input settings
-cmd:option('-input_h5','../DATA/game/v1/data.h5','path to the h5file containing the preprocessed dataset')
-cmd:option('-input_json','../DATA/game/v1/data.json','path to the json file containing additional info and vocab')
-cmd:option('-input_h5_images','..DATA/game/v1/ALL_REFERIT.h5','path to the h5 of the referit bounding boxes')
+cmd:option('-input_h5','../DATA/game/v2/data.h5','path to the h5file containing the preprocessed dataset')
+cmd:option('-input_json','../DATA/game/v2/data.json','path to the json file containing additional info and vocab')
+cmd:option('-input_h5_images','..DATA/game/v2/images_single.h5','path to the h5 of the referit bounding boxes')
 cmd:option('-feat_size',-1,'The number of image features')
 cmd:option('-vocab_size',-1,'The number of properties')
 cmd:option('-game_size','2','Number of images in the game')
 -- Select model
-cmd:option('-crit','MSE','What criterion to use: MSE|reward|hybrid')
+cmd:option('-crit','reward_discr','What criterion to use')
 cmd:option('-hidden_size',20,'The hidden size of the discriminative layer')
-cmd:option('-k',1,'The slope of sigmoid')
 cmd:option('-scale_output',0,'Whether to add a sigmoid at the output of the model')
 -- Optimization: General
-cmd:option('-max_iters', 7000, 'max number of iterations to run for (-1 = run forever)')
+cmd:option('-max_iters', -1, 'max number of iterations to run for (-1 = run forever)')
 cmd:option('-batch_size',32,'what is the batch size of games')
 cmd:option('-grad_clip',0.1,'clip gradients at this value (note should be lower than usual 5 because we normalize grads by both batch and seq_length)')
 -- Optimization: for the model
+cmd:option('-temperature',10,'Initial temperature')
+cmd:option('-decay_temperature',0.99995,'factor to decay temperature')
 cmd:option('-optim','adam','what update to use? rmsprop|sgd|sgdmom|adagrad|adam')
 cmd:option('-learning_rate',0.01,'learning rate')
 cmd:option('-learning_rate_decay_start', -1, 'at what iteration to start decaying learning rate? (-1 = dont)')
@@ -67,7 +68,7 @@ torch.manualSeed(opt.seed)
 torch.setdefaulttensortype('torch.FloatTensor') -- for CPU
 
 if opt.gpuid >= 0 then
-	require 'cutorch'
+  require 'cutorch' 
   	require 'cunn'
   	cutorch.manualSeed(opt.seed)
   	cutorch.setDevice(opt.gpuid + 1) -- note +1 because lua is 1-indexed
@@ -97,16 +98,8 @@ local protos = {}
 print(string.format('Parameters are game_size=%d feat_size=%d, vocab_size=%d\n', game_size, feat_size,vocab_size))
 protos.players = nn.Players(opt)
 
-if opt.crit == 'reward' then
-	protos.criterion = nn.VRClassReward(protos.players,opt.rewardScale)
-elseif opt.crit == 'hybrid' then
-	protos.criterion = nn.ParallelCriterion(false)
-      :add(nn.MSECriterion()) -- BACKPROP
-      :add(nn.VRClassReward(protos.players, opt.rewardScale)) -- REINFORCE
-elseif opt.crit == 'MSE'  then
-	protos.criterion = nn.MSECriterion()
-elseif opt.crit == 'MSE_comm' then
-	protos.criterion = nn.CrossEntropyCriterion()
+if opt.crit == 'reward_discr' then
+  protos.criterion = nn.VRClassReward(protos.players,opt.rewardScale)
 else
 	print(string.format('Wrog criterion: %s\n',opt.crit))
 end
@@ -130,89 +123,70 @@ collectgarbage()
 -- Validation evaluation
 -------------------------------------------------------------------------------
 local function eval_split(split, evalopt)
-  	local verbose = utils.getopt(evalopt, 'verbose', true)
-  	local val_images_use = utils.getopt(evalopt, 'val_images_use', true)
+  local verbose = utils.getopt(evalopt, 'verbose', true)
+  local val_images_use = utils.getopt(evalopt, 'val_images_use', true)
 
-  	protos.players:evaluate()
-  	loader:resetIterator(split) -- rewind iteator back to first datapoint in the split
+  protos.players:evaluate() 
+  loader:resetIterator(split) -- rewind iteator back to first datapoint in the split
   	
-  	local n = 0
-	
-	local loss_sum = 0
-  	local loss_evals = 0
-
-	local acc = 0
-	
+  local n = 0
+  local loss_sum = 0
+  local loss_evals = 0
+  local acc = 0
 	while true do
 
+  	-- get batch of data  
+    local data = loader:getBatch{batch_size = opt.batch_size, split = 'train'}
 
-		-- get batch of data  
-	        local data = loader:getBatch{batch_size = opt.batch_size, split = 'train'}
 
+    local inputs = {}
+    --insert images
+    for i=1,#data.images do
+     	table.insert(inputs,data.images[i])
+    end
+    --insert temperature
+    table.insert(inputs,opt.temperature)
+    --forward model
+    local outputs = protos.players:forward(inputs)
+    
+    --prepage gold data
+    local gold
+    if opt.crit == 'reward_discr' then
+      gold = data.single_discriminative
+    end
+    
+    --forward loss
+		local loss = protos.criterion:forward(outputs, gold)
 
-        	local inputs = {}
-        	--insert images
-        	for i=1,#data.images do
-                	table.insert(inputs,data.images[i])
-        	end
-        	--insert referrent annotation for P2
-        	table.insert(inputs, data.refs[1])
-        	table.insert(inputs, data.refs[2])
-        	--forward model
-        	local outputs = protos.players:forward(inputs)
-        	-- forward in the criterion to get loss
-        	local gold, predicted_discriminativeness
-        	if opt.crit == 'MSE' then
-                	gold = data.discriminativeness
-			predicted_discriminativeness = outputs
-			acc = acc+(torch.sum(torch.cmul(predicted_discriminativeness,data.discriminativeness))/opt.batch_size)
-		elseif opt.crit == 'MSE_comm' then
-			gold = data.referent_position
-			predicted = outputs
-			for jj=1,opt.batch_size do
-				if predicted[jj][gold[jj][1]]==1 then	
-					acc = acc+1
-				end	
-			end
-			acc = acc/opt.batch_size 
-        	elseif opt.crit == 'reward' then
-                	gold = data.referent_position
-       			predicted = outputs[1]
-                        for jj=1,opt.batch_size do
-                                if predicted[jj][gold[jj][1]]==1 then
-                                        acc = acc+1
-                                end
-                        end
-                        acc = acc/opt.batch_size
-		else
-                	gold = {data.discriminativeness, data.referent_position}
-			predicted_discriminativeness = outputs[1]
-	        end
-
-        	local loss = protos.criterion:forward(outputs, gold)
+    
+    for k=1,opt.batch_size do
+      if outputs[1][k][gold[k][1]]==1 then
+        acc = acc+1
+      end
+    end
 		--print(torch.sum(gold,2))
 		--print(loss)
 
  
 		--average loss
-    		loss_sum = loss_sum + loss
-    		loss_evals = loss_evals + 1
+    loss_sum = loss_sum + loss
+		loss_evals = loss_evals + 1
 
 		n = n+opt.batch_size
 	
-    		-- if we wrapped around the split or used up val imgs budget then bail
-    		local ix0 = data.bounds.it_pos_now
-    		local ix1 = math.min(data.bounds.it_max, val_images_use)
-    		if verbose then
-      			print(string.format('evaluating validation performance... %d/%d (%f)', ix0-1, ix1, loss))
-    		end
+  	-- if we wrapped around the split or used up val imgs budget then bail
+    local ix0 = data.bounds.it_pos_now
+    local ix1 = math.min(data.bounds.it_max, val_images_use)
+    if verbose then
+    	print(string.format('evaluating validation performance... %d/%d (%f)', ix0-1, ix1, loss))
+    end
 
-    		if loss_evals % 10 == 0 then collectgarbage() end
-    		if data.bounds.wrapped then break end -- the split ran out of data, lets break out
-    		if n >= val_images_use then break end -- we've used enough images
-  	end
+    if loss_evals % 10 == 0 then collectgarbage() end
+    if data.bounds.wrapped then break end -- the split ran out of data, lets break out
+    if n >= val_images_use then break end -- we've used enough images
+  end
 
-	return loss_sum/loss_evals, acc/loss_evals
+	return loss_sum/loss_evals, acc/(loss_evals*opt.batch_size)
 
 end
 
@@ -223,14 +197,14 @@ local iter = 0
 local function lossFun()
 
 	protos.players:training()
-  	grad_params:zero()
+  grad_params:zero()
 
-  	-----------------------------------------------------------------------------
-  	-- Forward pass
-  	-----------------------------------------------------------------------------
+  ----------------------------------------------------------------------------
+  -- Forward pass
+  -----------------------------------------------------------------------------
 
-  	-- get batch of data  
-  	local data = loader:getBatch{batch_size = opt.batch_size, split = 'train'}
+  -- get batch of data  
+  local data = loader:getBatch{batch_size = opt.batch_size, split = 'train'}
   
   
 	local inputs = {}
@@ -238,43 +212,36 @@ local function lossFun()
 	for i=1,#data.images do
 		table.insert(inputs,data.images[i])
 	end
-	--insert referrent annotation for P2
-	table.insert(inputs, data.refs[1])
-	table.insert(inputs, data.refs[2])
+	--insert temperature
+	table.insert(inputs,opt.temperature)
 
 	--forward model
 	local outputs = protos.players:forward(inputs)
   	
 	--compile gold data
 	local gold
-	if opt.crit == 'MSE' then
-		gold = data.discriminativeness
-	elseif opt.crit == 'reward' then
-		gold = data.referent_position
-	elseif opt.crit == 'hybrid' then
-		gold = {data.discriminativeness, data.referent_position}
-	else
-		gold = data.referent_position
+	if opt.crit == 'reward_discr' then
+		gold = data.single_discriminative
 	end
 
 	--forward in criterion to get loss
-  	local loss = protos.criterion:forward(outputs, gold)
+  local loss = protos.criterion:forward(outputs, gold)
 
 	--print(torch.sum(gold,2))
 	-----------------------------------------------------------------------------
-  	-- Backward pass
-  	-----------------------------------------------------------------------------
-  	-- backprop through criterion
-  	local dpredicted = protos.criterion:backward(outputs, gold)
+  -- Backward pass
+  -----------------------------------------------------------------------------
+  -- backprop through criterion
+  local dpredicted = protos.criterion:backward(outputs, gold)
 
-  	-- backprop through model
-  	local dummy = protos.players:backward(inputs, {dpredicted})
+  -- backprop through model
+  local dummy = protos.players:backward(inputs, {dpredicted})
 
-  	-- clip gradients
-  	grad_params:clamp(-opt.grad_clip, opt.grad_clip)
+  -- clip gradients
+  grad_params:clamp(-opt.grad_clip, opt.grad_clip)
 
 
-  	return loss
+	return loss
 end
 
 -------------------------------------------------------------------------------
@@ -289,95 +256,95 @@ local val_prop_acc_history = {}
 local best_score
 local checkpoint_path = opt.checkpoint_path .. 'cp_id' .. opt.id ..'.cp'
 
+
+
 while true do  
 
-  	-- eval loss/gradient
-  	local losses = lossFun()
-  	if iter % opt.losses_log_every == 0 then loss_history[iter] = losses end
+ 	-- eval loss/gradient
+ 	local losses = lossFun()
+ 	if iter % opt.losses_log_every == 0 then loss_history[iter] = losses end
 
-  	-- save checkpoint once in a while (or on final iteration)
-  	if (iter % opt.save_checkpoint_every == 0 or iter == opt.max_iters) then
+ 	-- save checkpoint once in a while (or on final iteration)
+ 	if (iter % opt.save_checkpoint_every == 0 or iter == opt.max_iters) then
 
-		print(string.format('Training loss %f',losses))
-    		-- evaluate the validation performance
-    		local loss,acc = eval_split('val', {val_images_use = opt.val_images_use, verbose=opt.verbose})
-                print(string.format('VALIDATION loss: %f and accuracy: %f', loss,acc))
-		-- evaluate test performance		
-		--loss= eval_split('test', {val_images_use = opt.val_images_use, verbose=opt.verbose})
-                --print(string.format('TEST loss: %f', loss))
-		
+  	print(string.format('Training loss %f',losses))
+    -- evaluate the validation performance
+    local loss,acc = eval_split('val', {val_images_use = opt.val_images_use, verbose=opt.verbose})
+    print(string.format('VALIDATION loss: %f and prediction accuracy %f and temperature %f', loss, acc, opt.temperature))
+
 		--keep test score for now
-		val_acc_history[iter] = loss
-		val_prop_acc_history[iter] = loss
+    val_acc_history[iter] = loss
+    val_prop_acc_history[iter] = loss
 
+    -- write a (thin) json report
+    local checkpoint = {}
+    checkpoint.opt = opt
+    checkpoint.iter = iter
+    checkpoint.loss_history = loss_history
+    checkpoint.val_acc_history = val_acc_history
+    checkpoint.val_prop_acc_history = val_prop_acc_history
+    checkpoint.val_predictions = val_predictions 
 
+    utils.write_json(checkpoint_path .. '.json', checkpoint)
+    print('wrote json checkpoint to ' .. checkpoint_path .. '.json')
 
-    		-- write a (thin) json report
-    		local checkpoint = {}
-    		checkpoint.opt = opt
-    		checkpoint.iter = iter
-    		checkpoint.loss_history = loss_history
-    		checkpoint.val_acc_history = val_acc_history
-		checkpoint.val_prop_acc_history = val_prop_acc_history
-    		checkpoint.val_predictions = val_predictions 
-
-    		utils.write_json(checkpoint_path .. '.json', checkpoint)
-    		print('wrote json checkpoint to ' .. checkpoint_path .. '.json')
-
-    		-- write the full model checkpoint as well if we did better than ever
-    		local current_score = loss
+    -- write the full model checkpoint as well if we did better than ever
+    local current_score = loss
     
-		if best_score == nil or current_score >= best_score then
-      			best_score = current_score
-      			if iter > 0 then -- dont save on very first iteration
-        			-- include the protos (which have weights) and save to file
-        			local save_protos = {}
-        			save_protos.model = protos.model -- these are shared clones, and point to correct param storage
-        			checkpoint.protos = save_protos
-        			-- also include the vocabulary mapping so that we can use the checkpoint 
-        			-- alone to run on arbitrary images without the data loader
-        			torch.save(checkpoint_path .. '.t7', checkpoint)
-        			print('wrote checkpoint to ' .. checkpoint_path .. '.t7')
-      			end
-    		end
-	end
+    if best_score == nil or current_score >= best_score then
+      best_score = current_score
+      if iter > 0 then -- dont save on very first iteration
+ 			  -- include the protos (which have weights) and save to file
+ 			  local save_protos = {}
+ 			  save_protos.model = protos.model -- these are shared clones, and point to correct param storage
+ 			  checkpoint.protos = save_protos
+ 			  -- also include the vocabulary mapping so that we can use the checkpoint 
+ 			  -- alone to run on arbitrary images without the data loader
+ 			  torch.save(checkpoint_path .. '.t7', checkpoint)
+ 			  print('wrote checkpoint to ' .. checkpoint_path .. '.t7')
+			end
+    end
+  end
 
-  	-- decay the learning rate
-  	local learning_rate = opt.learning_rate
-  	if iter > opt.learning_rate_decay_start and opt.learning_rate_decay_start >= 0 then
-    		local frac = (iter - opt.learning_rate_decay_start) / opt.learning_rate_decay_every
-    		local decay_factor = math.pow(0.5, frac)
-    		learning_rate = learning_rate * decay_factor -- set the decayed rate
-  	end
+  -- decay the learning rate
+  local learning_rate = opt.learning_rate
+  if iter > opt.learning_rate_decay_start and opt.learning_rate_decay_start >= 0 then
+    local frac = (iter - opt.learning_rate_decay_start) / opt.learning_rate_decay_every
+    local decay_factor = math.pow(0.5, frac)
+    learning_rate = learning_rate * decay_factor -- set the decayed rate
+  end
+
+  --anneal temperature
+  opt.temperature = math.max(0.000001,opt.decay_temperature * opt.temperature)
 
 	if iter % opt.print_every == 0 then
-        	print(string.format("%d, grad norm = %6.4e, param norm = %6.4e, grad/param norm = %6.4e", iter, grad_params:norm(), params:norm(), grad_params:norm() / params:norm()))
-    	end
-  	-- perform a parameter update
-  	if opt.optim == 'rmsprop' then
-    		rmsprop(params, grad_params, learning_rate, opt.optim_alpha, opt.optim_epsilon, optim_state)
-  	elseif opt.optim == 'adagrad' then
-    		adagrad(params, grad_params, learning_rate, opt.optim_epsilon, optim_state)
-  	elseif opt.optim == 'sgd' then
-    		sgd(params, grad_params, opt.learning_rate)
-  	elseif opt.optim == 'sgdm' then
-    		sgdm(params, grad_params, learning_rate, opt.optim_alpha, optim_state)
-  	elseif opt.optim == 'sgdmom' then
-    		sgdmom(params, grad_params, learning_rate, opt.optim_alpha, optim_state)
-  	elseif opt.optim == 'adam' then
-    		adam(params, grad_params, learning_rate, opt.optim_alpha, opt.optim_beta, opt.optim_epsilon, optim_state)
-  	else
-    		error('bad option opt.optim')
-  	end
+    print(string.format("%d, grad norm = %6.4e, param norm = %6.4e, grad/param norm = %6.4e", iter, grad_params:norm(), params:norm(), grad_params:norm() / params:norm()))
+  end
+  -- perform a parameter update
+  if opt.optim == 'rmsprop' then
+    rmsprop(params, grad_params, learning_rate, opt.optim_alpha, opt.optim_epsilon, optim_state)
+  elseif opt.optim == 'adagrad' then
+ 		adagrad(params, grad_params, learning_rate, opt.optim_epsilon, optim_state)
+	elseif opt.optim == 'sgd' then
+ 		sgd(params, grad_params, opt.learning_rate)
+ 	elseif opt.optim == 'sgdm' then
+ 		sgdm(params, grad_params, learning_rate, opt.optim_alpha, optim_state)
+	elseif opt.optim == 'sgdmom' then
+ 		sgdmom(params, grad_params, learning_rate, opt.optim_alpha, optim_state)
+ 	elseif opt.optim == 'adam' then
+ 		adam(params, grad_params, learning_rate, opt.optim_alpha, opt.optim_beta, opt.optim_epsilon, optim_state)
+ 	else
+ 		error('bad option opt.optim')
+ 	end
 
-  	-- stopping criterions
-  	iter = iter + 1
-  	if iter % 10 == 0 then collectgarbage() end -- good idea to do this once in a while, i think
-  	if loss0 == nil then loss0 = losses end
-  	if losses < loss0 * 20 then
-    		print('loss seems to be exploding, quitting.')
-    		break
-  	end
-  	if opt.max_iters > 0 and iter >= opt.max_iters then break end -- stopping criterion
+ 	-- stopping criterions
+ 	iter = iter + 1
+ 	if iter % 10 == 0 then collectgarbage() end -- good idea to do this once in a while, i think
+ 	if loss0 == nil then loss0 = losses end
+  --if losses > loss0 * 20 then
+  --	print(string.format('loss seems to be exploding, quitting. %f vs %f', losses, loss0))
+  --  break
+  --end
+  if opt.max_iters > 0 and iter >= opt.max_iters then break end -- stopping criterion
 
 end

@@ -1,3 +1,4 @@
+from itertools import combinations_with_replacement, product
 import os
 import json
 import argparse
@@ -9,37 +10,19 @@ import numpy as np
 from scipy.misc import imread, imresize
 
 
-def build_vocab(data, params):
-	count_thr = -1 #params['word_count_threshold']
-	print params['max_len']
-	# count up the number of words
-	counts = {}
-	for i in range(len(data)):
-		d = data[i]
-		RE1 = d['RE1']
-		RE2 = d['RE2']
-		t = RE1.split()
-		if len(t)>params['max_len']:
-			params['max_len'] = len(t)
-		t = RE2.split()
-		if len(t)>params['max_len']:
-            params['max_len'] = len(t)
-		for w in RE1.split()+RE2.split():
-			counts[w] = counts.get(w, 0) + 1
-
-	cw = sorted([(count,w) for w,count in counts.iteritems()], reverse=True)
-	print 'top words and their counts:'
-	print '\n'.join(map(str,cw[:20]))
-
-	# print some stats
-	total_words = sum(counts.itervalues())
-	print 'total words:', total_words
-	bad_words = [w for w,n in counts.iteritems() if n <= count_thr]
-	vocab = [w for w,n in counts.iteritems() if n > count_thr]
-	bad_count = sum(counts[w] for w in bad_words)
-	print 'number of bad words: %d/%d = %.2f%%' % (len(bad_words), len(counts), len(bad_words)*100.0/len(counts))
+def build_vocab(data_new, params):
+	
+	count = {}
+	for d in data_new:
+		if not d['RE1'] in count:
+			count[d['RE1']] = 0
+		count[d['RE1']] +=1
+		if not d['RE2'] in count:
+                        count[d['RE2']] = 0
+                count[d['RE2']] +=1
+	vocab = [w for w,n in count.iteritems()]
+	
 	print 'number of words in vocab would be %d' % (len(vocab), )
-	print 'number of UNKs: %d/%d = %.2f%%' % (bad_count, total_words, bad_count*100.0/total_words)
 
 	return vocab
 
@@ -101,43 +84,67 @@ def encode_expressions(data, params, wtoi):
 	print 'encoded expressions to array of size ', `L2.shape`,'   ',`L1.shape`,' ',L3.shape
  	return L1,L2,L3
 
-def format_data(data, images_index):
-	data_new = []	
-	for  r,bb1, RE1, bb2, RE2, RE1_original, RE2_original, spatial_1, spatial_2,discr,wo in data:
-		d = {}
-		d['discr'] = discr
-		d['RE1'] = RE1
-		d['RE2'] = RE2
-		d['bb1'] = bb1
-		d['bb2'] = bb2
-		d['bb1_i'] = 0
-		d['bb2_i'] = 0
-		d['RE1_original'] = RE1_original
-		d['RE2_original'] = RE2_original
-		d['ratio'] = r
-		if not bb1 in images_index or not bb2 in images_index:
-			continue
-		d['bb1_i'] = images_index[bb1]
-		d['bb2_i'] = images_index[bb2]
+def format_data(vocab_size, balanced, objects):
+	data_new = []
 
-		data_new.append(d)
+	cats = objects.keys()
+	if vocab_size<0 or len(cats)<vocab_size:
+		to_keep = cats
+	else:
+		to_keep = cats[:vocab_size]
+
+	#create all combinations of pairs of concepts -> <referent, context>
+	for i1, i2 in list(combinations_with_replacement(range(len(to_keep)),2)):
+		if i1==i2:
+			continue
+		c1 = to_keep[i1]
+		c2 = to_keep[i2]
+		objs1 = objects[c1]
+		objs2 = objects[c2]
+		all_pairs = list(product(objs1,objs2))
+		shuffle(all_pairs)
+		
+		if balanced>len(all_pairs):
+			continue
+		else:
+			if balanced <0:
+				keep = len(all_pairs)
+			else:
+				keep = balanced
+
+		for p1,p2 in all_pairs[:balanced]:
+			d = {}
+			d['discr'] = c1
+			d['RE1'] = c1
+			d['RE2'] = c2
+			d['bb1'] = p1
+			d['bb2'] = p2
+			d['bb1_i'] = objects[c1][p1]
+			d['bb2_i'] = objects[c2][p2]
+			d['RE1_original'] = c1
+			d['RE2_original'] = c2
+			d['ratio'] = -1
+
+			data_new.append(d)
 	return data_new
 
 def main(params):
 
-	data = json.load(open(params['input_json'], 'r'))
 	#read images
-	images_index = {}
+	objects = {}
 	i = 1
-	with open(params["images"],'r') as f:
+	with open(params["images_ids"],'r') as f:
 		for line in f:
 			line = line.strip()
-			im = line.split('.')[0]
-			images_index[im] = i
+			im = line.split('/')[3]
+			cat = line.split('/')[2]
+			if not cat in objects:
+				objects[cat] = {}
+			objects[cat][im] = i
 			i+=1
 
-	#create prerry jason
-	data_new = format_data(data, images_index)
+	#create prettyy jason
+	data_new = format_data(params['vocab_size'],params['balanced'], objects)
   	seed(123) # make reproducible
   	shuffle(data_new) # shuffle the order
 
@@ -177,9 +184,9 @@ if __name__ == "__main__":
 
 	parser = argparse.ArgumentParser()
 
-	# input json
-	#distractors.json
-	parser.add_argument('--input_json', default='/home/angeliki/sas_adam/DATA_2/selected.json', help='input json file to process into hdf5')
+	parser.add_argument('--vocab_size',default=-1,type=int,help='size of vocabulary')
+	parser.add_argument('--balanced',default=100,type=int,help='instances per concept pair')
+	parser.add_argument('--images_ids',default="/home/angeliki/git/pragmatics/DATA/visVecs/out_index.txt",help='Image ides to generate data')
 	parser.add_argument('--num_val', default=1000, type=int, help='number of images to assign to validation data (for CV etc)')
 	parser.add_argument('--output_json', default='data.json', help='output json file')
 	parser.add_argument('--output_h5', default='data.h5', help='output h5 file')
@@ -188,8 +195,6 @@ if __name__ == "__main__":
 	args = parser.parse_args()
   
 	params = vars(args) # convert to ordinary dict
-	params['images'] = "/home/angeliki/sas_adam/matconvnet-1.0-beta18/ALL_REFERIT.txt"
-	params['max_len']= -1 
 	print 'parsed input parameters:'
   	print json.dumps(params, indent = 2)
   	main(params)
