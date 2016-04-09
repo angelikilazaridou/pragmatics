@@ -1,4 +1,4 @@
-from itertools import combinations_with_replacement, product
+from itertools import combinations, product
 import os
 import json
 import argparse
@@ -14,12 +14,15 @@ def build_vocab(data_new, params):
 	
 	count = {}
 	for d in data_new:
-		if not d['RE1'] in count:
-			count[d['RE1']] = 0
-		count[d['RE1']] +=1
-		if not d['RE2'] in count:
-                        count[d['RE2']] = 0
-                count[d['RE2']] +=1
+		for w in d['RE1']:
+			if not w in count:
+				count[w] = 0
+			count[w] +=1
+		for w in d['RE2']:
+			if not w in count:
+	                        count[w] = 0
+	                count[w] +=1
+	
 	vocab = [w for w,n in count.iteritems()]
 	
 	print 'number of words in vocab would be %d' % (len(vocab), )
@@ -35,7 +38,7 @@ def assign_splits(data, params):
         		d['split'] = 'val'
 		elif i < num_val + num_test: 
 			d['split'] = 'test'
-		else: 
+		else:
 			d['split'] = 'train'
 
 	print 'assigned %d to val, %d to test.' % (num_val, num_test)
@@ -56,19 +59,19 @@ def encode_expressions(data, params, wtoi):
 		Li = np.zeros((1,2, vocab_size), dtype='uint32')
 		
 		#add RE1
-		for k,w in enumerate(d['RE1'].split()):
+		for k,w in enumerate(d['RE1']):
 		   	Li[0,0,wtoi[w]-1] = 1
 		
 		 
 		#add RE2
-		for k,w in enumerate(d['RE2'].split()):
+		for k,w in enumerate(d['RE2']):
 			Li[0,1,wtoi[w]-1] = 1
    		ref_arrays.append(Li)
 
 		Li2 = np.zeros((1,vocab_size),dtype='uint32')
 		#add discr
 		l = -1
-		for k,w in enumerate(d['discr'].split()):
+		for k,w in enumerate(d['discr']):
 			Li2[0,wtoi[w]-1] = 1
 			l = wtoi[w]
 		label_arrays.append(Li2)
@@ -82,67 +85,52 @@ def encode_expressions(data, params, wtoi):
 	print 'encoded expressions to array of size ', `L2.shape`,'   ',`L1.shape`,' ',L3.shape
  	return L1,L2,L3
 
-def format_data(vocab_size, balanced, objects):
+def format_data(images):
 	data_new = []
 
-	cats = objects.keys()
-	if vocab_size<0 or len(cats)<vocab_size:
-		to_keep = cats
-	else:
-		to_keep = cats[:vocab_size]
+	ims = images.keys()
 
 	#create all combinations of pairs of concepts -> <referent, context>
-	for i1, i2 in list(combinations_with_replacement(range(len(to_keep)),2)):
+	for i1, i2 in list(combinations(range(len(ims)),2)):
 		if i1==i2:
 			continue
-		c1 = to_keep[i1]
-		c2 = to_keep[i2]
-		objs1 = objects[c1]
-		objs2 = objects[c2]
-		all_pairs = list(product(objs1,objs2))
-		shuffle(all_pairs)
-		
-		if balanced>len(all_pairs):
+		im1 = ims[i1]
+		im2 = ims[i2]
+			
+		d = {}
+		d['discr'] = list(set(images[im1][1])-set(images[im2][1]))
+		if len(d['discr']) == 0 :
 			continue
-		else:
-			if balanced <0:
-				keep = len(all_pairs)
-			else:
-				keep = balanced
+		d['RE1'] = images[im1][1]
+		d['RE2'] = images[im2][1]
+		d['bb1'] = im1
+		d['bb2'] = im2
+		d['bb1_i'] = images[im1][0]
+		d['bb2_i'] = images[im2][0]
+		d['RE1_original'] = d['RE1']
+		d['RE2_original'] = d['RE2']
+		d['ratio'] = -1
 
-		for p1,p2 in all_pairs[:balanced]:
-			d = {}
-			d['discr'] = c1
-			d['RE1'] = c1
-			d['RE2'] = c2
-			d['bb1'] = p1
-			d['bb2'] = p2
-			d['bb1_i'] = objects[c1][p1]
-			d['bb2_i'] = objects[c2][p2]
-			d['RE1_original'] = c1
-			d['RE2_original'] = c2
-			d['ratio'] = -1
-
-			data_new.append(d)
+		data_new.append(d)
 	return data_new
 
 def main(params):
 
 	#read images
-	objects = {}
+	images = {}
 	i = 1
 	with open(params["images_ids"],'r') as f:
 		for line in f:
 			line = line.strip()
-			im = line.split('/')[3]
-			cat = line.split('/')[2]
-			if not cat in objects:
-				objects[cat] = {}
-			objects[cat][im] = i
-			i+=1
+			im = line.split('/')[7]
+			images[im] = []
+			for attr in im.split('.')[0].split('_'):
+				images[im].append(attr)
+			images[im] = (i, images[im])
+			i= i+1
 
 	#create prettyy jason
-	data_new = format_data(params['vocab_size'],params['balanced'], objects)
+	data_new = format_data(images)
   	seed(123) # make reproducible
   	shuffle(data_new) # shuffle the order
 
@@ -151,6 +139,9 @@ def main(params):
 	vocab = build_vocab(data_new, params)
 	itow = {i+1:w for i,w in enumerate(vocab)} # a 1-indexed vocab translation table
 	wtoi = {w:i+1 for i,w in enumerate(vocab)} # inverse table
+
+	# throw away some data
+	data_new = data_new[0:(params['num_test']+params['num_val']+params['num_train'])]
 
 	# assign the splits
   	assign_splits(data_new, params)
@@ -182,14 +173,13 @@ if __name__ == "__main__":
 
 	parser = argparse.ArgumentParser()
 
-	parser.add_argument('--vocab_size',default=-1,type=int,help='size of vocabulary')
-	parser.add_argument('--balanced',default=100,type=int,help='instances per concept pair')
-	parser.add_argument('--images_ids',default="/home/angeliki/git/pragmatics/DATA/visVecs/out_index.txt",help='Image ides to generate data')
+	parser.add_argument('--num_train',default=100000,type=int,help='traning data')
+	parser.add_argument('--images_ids',default="/home/angeliki/git/pragmatics/DATA/toy_data/all_images.txt",help='Image ids to generate data')
 	parser.add_argument('--num_val', default=1000, type=int, help='number of images to assign to validation data (for CV etc)')
 	parser.add_argument('--output_json', default='data.json', help='output json file')
 	parser.add_argument('--output_h5', default='data.h5', help='output h5 file')
 	parser.add_argument('--num_test', default=1000, type=int, help='number of test images (to withold until very very end)')
-
+	
 	args = parser.parse_args()
   
 	params = vars(args) # convert to ordinary dict

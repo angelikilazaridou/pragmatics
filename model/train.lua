@@ -17,9 +17,9 @@ cmd:text()
 cmd:text('Options')
 
 -- Data input settings
-cmd:option('-input_h5','../DATA/game/v2/data.h5','path to the h5file containing the preprocessed dataset')
-cmd:option('-input_json','../DATA/game/v2/data.json','path to the json file containing additional info and vocab')
-cmd:option('-input_h5_images','..DATA/game/v2/images_single.h5','path to the h5 of the referit bounding boxes')
+cmd:option('-input_h5','../DATA/game/v1/data.h5','path to the h5file containing the preprocessed dataset')
+cmd:option('-input_json','../DATA/game/v1/data.json','path to the json file containing additional info and vocab')
+cmd:option('-input_h5_images','..DATA/game/v1/ALL_REFERIT.h5','path to the h5 of the referit bounding boxes')
 cmd:option('-feat_size',-1,'The number of image features')
 cmd:option('-vocab_size',-1,'The number of properties')
 cmd:option('-game_size','2','Number of images in the game')
@@ -34,10 +34,12 @@ cmd:option('-grad_clip',0.1,'clip gradients at this value (note should be lower 
 -- Optimization: for the model
 cmd:option('-temperature',10,'Initial temperature')
 cmd:option('-decay_temperature',0.99995,'factor to decay temperature')
+cmd:option('-temperature2',1,'Initial temperature 2') -- tried with 0.5, didn't do the job
+cmd:option('-anneal_temperature',1.000005,'factor to anneal temperature')
 cmd:option('-optim','adam','what update to use? rmsprop|sgd|sgdmom|adagrad|adam')
 cmd:option('-learning_rate',0.01,'learning rate')
-cmd:option('-learning_rate_decay_start', -1, 'at what iteration to start decaying learning rate? (-1 = dont)')
-cmd:option('-learning_rate_decay_every', 500, 'every how many iterations thereafter to drop LR by half?')
+cmd:option('-learning_rate_decay_start', 20000, 'at what iteration to start decaying learning rate? (-1 = dont)')
+cmd:option('-learning_rate_decay_every', 200000, 'every how many iterations thereafter to drop LR by half?')
 cmd:option('-optim_alpha',0.8,'alpha for adagrad/rmsprop/momentum/adam')
 cmd:option('-optim_beta',0.999,'beta used for adam')
 cmd:option('-optim_epsilon',1e-8,'epsilon that goes into denominator for smoothing')
@@ -144,37 +146,42 @@ local function eval_split(split, evalopt)
     for i=1,#data.images do
      	table.insert(inputs,data.images[i])
     end
+    --insert the shuffled refs for P2 
+    for i=1,#data.refs do
+	table.insert(inputs, data.refs[i])
+    end
     --insert temperature
     table.insert(inputs,opt.temperature)
+    
     --forward model
     local outputs = protos.players:forward(inputs)
     
     --prepage gold data
     local gold
     if opt.crit == 'reward_discr' then
-      gold = data.single_discriminative
+      --gold = data.single_discriminative
+      gold = data.referent_position
     end
     
     --forward loss
-		local loss = protos.criterion:forward(outputs, gold)
+    local loss = protos.criterion:forward(outputs, gold)
 
-    
     for k=1,opt.batch_size do
       if outputs[1][k][gold[k][1]]==1 then
         acc = acc+1
       end
     end
-		--print(torch.sum(gold,2))
-		--print(loss)
+    --print(torch.sum(gold,2))
+    --print(loss)
 
  
-		--average loss
+    --average loss
     loss_sum = loss_sum + loss
-		loss_evals = loss_evals + 1
-
-		n = n+opt.batch_size
+    loss_evals = loss_evals + 1
+    
+    n = n+opt.batch_size
 	
-  	-- if we wrapped around the split or used up val imgs budget then bail
+    -- if we wrapped around the split or used up val imgs budget then bail
     local ix0 = data.bounds.it_pos_now
     local ix1 = math.min(data.bounds.it_max, val_images_use)
     if verbose then
@@ -212,16 +219,20 @@ local function lossFun()
 	for i=1,#data.images do
 		table.insert(inputs,data.images[i])
 	end
+	--insert the shuffled refs for P2 
+	for i=1,#data.refs do
+        	table.insert(inputs, data.refs[i])
+    	end
 	--insert temperature
 	table.insert(inputs,opt.temperature)
-
 	--forward model
 	local outputs = protos.players:forward(inputs)
   	
 	--compile gold data
 	local gold
 	if opt.crit == 'reward_discr' then
-		gold = data.single_discriminative
+		--gold = data.single_discriminative
+		gold = data.referent_position
 	end
 
 	--forward in criterion to get loss
@@ -270,7 +281,7 @@ while true do
   	print(string.format('Training loss %f',losses))
     -- evaluate the validation performance
     local loss,acc = eval_split('val', {val_images_use = opt.val_images_use, verbose=opt.verbose})
-    print(string.format('VALIDATION loss: %f and prediction accuracy %f and temperature %f', loss, acc, opt.temperature))
+    print(string.format('VALIDATION loss: %f and prediction accuracy %f and temperature %f temperature2 %f', loss, acc, opt.temperature, opt.temperature2))
 
 		--keep test score for now
     val_acc_history[iter] = loss
@@ -316,9 +327,10 @@ while true do
 
   --anneal temperature
   opt.temperature = math.max(0.000001,opt.decay_temperature * opt.temperature)
+  opt.temperature2 = math.min(1,opt.anneal_temperature * opt.temperature2)
 
 	if iter % opt.print_every == 0 then
-    print(string.format("%d, grad norm = %6.4e, param norm = %6.4e, grad/param norm = %6.4e", iter, grad_params:norm(), params:norm(), grad_params:norm() / params:norm()))
+    print(string.format("%d, grad norm = %6.4e, param norm = %6.4e, grad/param norm = %6.4e, lr = %6.4e", iter, grad_params:norm(), params:norm(), grad_params:norm() / params:norm(), learning_rate))
   end
   -- perform a parameter update
   if opt.optim == 'rmsprop' then

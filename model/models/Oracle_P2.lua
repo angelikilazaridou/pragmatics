@@ -23,6 +23,7 @@ function oracle:updateOutput(input)
 	local ref2 = input[2]
 	--3: the sampled feature
 	local feat = input[3]
+
 	local predictions = torch.CudaTensor(self.batch_size,2):fill(0)
 
 	local p1  = torch.sum(torch.cmul(ref1,feat),2)
