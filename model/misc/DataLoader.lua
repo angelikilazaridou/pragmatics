@@ -25,12 +25,19 @@ function DataLoader:__init(opt)
 	self.h5_images_file = hdf5.open(opt.h5_images_file, 'r')
  
   	-- extract image size from dataset
-  	local images_size = self.h5_images_file:read('/images'):dataspaceSize()
-        print(images_size)
-  	assert(#images_size == 2, '/images should be a 2D tensor')
-  	self.num_images = images_size[2]
+  	self.images_size = self.h5_images_file:read('/images'):dataspaceSize()
+        print(self.images_size)
+  	assert(#self.images_size == 2, '/images should be a 2D tensor')
+	local feat_size 
+	if self.images_size[1] == 4096 then
+  		self.num_images = self.images_size[2]
+		feat_size = self.images_size[1]
+	else
+		self.num_images = self.images_size[1]
+		feat_size = self.images_size[2]
+	end
 	if opt.feat_size == -1 then
-		self.feat_size = images_size[1]
+		self.feat_size = feat_size
 	else
 		self.feat_size = opt.feat_size
 	end
@@ -132,7 +139,12 @@ function DataLoader:getBatch(opt)
 				end
 				--fetch respective image -- NOTE: transposed images 
 				-- for v2 transpose 1,2
-	    			local img = self.h5_images_file:read('/images'):partial({1,self.feat_size},{bb,bb})
+				local img
+				if self.images_size[1] == 4096 then
+		    			img = self.h5_images_file:read('/images'):partial({1,self.feat_size},{bb,bb})
+				else
+					img = self.h5_images_file:read('/images'):partial({bb,bb}, {1,self.feat_size})
+				end
 				--normalize to unit norm
 				local img_norm = torch.norm(img)
 		       		img = img/img_norm

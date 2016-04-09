@@ -17,9 +17,9 @@ cmd:text()
 cmd:text('Options')
 
 -- Data input settings
-cmd:option('-input_h5','../DATA/game/v1/data.h5','path to the h5file containing the preprocessed dataset')
-cmd:option('-input_json','../DATA/game/v1/data.json','path to the json file containing additional info and vocab')
-cmd:option('-input_h5_images','..DATA/game/v1/ALL_REFERIT.h5','path to the h5 of the referit bounding boxes')
+cmd:option('-input_h5','../DATA/game/v3/data.h5','path to the h5file containing the preprocessed dataset')
+cmd:option('-input_json','../DATA/game/v3/data.json','path to the json file containing additional info and vocab')
+cmd:option('-input_h5_images','..DATA/game/v3/toy_images.h5','path to the h5 of the referit bounding boxes')
 cmd:option('-feat_size',-1,'The number of image features')
 cmd:option('-vocab_size',-1,'The number of properties')
 cmd:option('-game_size','2','Number of images in the game')
