@@ -166,7 +166,7 @@ local function eval_split(split, evalopt)
     
     --forward loss
     local loss = protos.criterion:forward(outputs, gold)
-
+ 
     for k=1,opt.batch_size do
       if outputs[1][k][gold[k][1]]==1 then
         acc = acc+1

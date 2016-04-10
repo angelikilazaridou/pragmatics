@@ -100,7 +100,7 @@ function DataLoader:getBatch(opt)
 	local refs = {}
   	for i=1,self.game_size do 
     		table.insert(img_batch, torch.FloatTensor(batch_size,  self.feat_size))
-		table.insert(refs,torch.FloatTensor(batch_size, self.vocab_size):fill(0))
+		table.insert(refs,torch.FloatTensor(batch_size, self.feat_size):fill(0))
   	end
 
 	--the labels per game
@@ -166,7 +166,7 @@ function DataLoader:getBatch(opt)
 
 			----  create data for P2
 			--local referent_position = torch.random(self.game_size)  --- pick where to place the referent 
-			local referent_position = 1
+			local referent_position = torch.random(2)
 			---- labels
 	    		label_batch[{ {i,i} }] = referent_position
 			---- assign shuffled data for P2
@@ -174,11 +174,11 @@ function DataLoader:getBatch(opt)
 			--local pos2 = (((referent_position%2)+2)%2)+1  --if ref == 1 -> 2 else 1
 			--refs[1][i] = self.h5_file:read('/refs'):partial({ix,ix},{1,1},{1,self.vocab_size})
 			--refs[2][i] = self.h5_file:read('/refs'):partial({ix,ix},{2,2},{1,self.vocab_size})
-			refs[((referent_position+1)%2)+1][i] = self.h5_file:read('/refs'):partial({ix,ix},{1,1},{1,self.vocab_size})
-			refs[((referent_position+2)%2)+1][i] = self.h5_file:read('/refs'):partial({ix,ix},{2,2},{1,self.vocab_size})
+			refs[((referent_position+1)%2)+1][i] = img_batch[1][i] --self.h5_file:read('/refs'):partial({ix,ix},{1,1},{1,self.vocab_size})
+			refs[((referent_position+2)%2)+1][i] = img_batch[2][i] --self.h5_file:read('/refs'):partial({ix,ix},{2,2},{1,self.vocab_size})
 
 			-- istead, randomly grab one from ref
-	                single_discriminative[{{i,i}}] = torch.multinomial(refs[1][i],1)
+	                --single_discriminative[{{i,i}}] = torch.multinomial(refs[1][i],1)
 			--[[
 			local k = single_discriminative[{{i,i}}][1][1]
 			print(string.format('R:%s vs C:%s have %s',self.info.refs[ix].bb1,self.info.refs[ix].bb2,self.vocab[tostring(k)]))
@@ -194,13 +194,13 @@ function DataLoader:getBatch(opt)
   	end
 	if self.gpu<0 then
 		data.discriminativeness = discriminativeness
-		data.single_discriminative = single_discriminative:contiguous()
+		--data.single_discriminative = single_discriminative:contiguous()
 	  	data.images = img_batch
 		data.refs = refs
 		data.referent_position = label_batch:contiguous() -- note: make label sequences go down as columns
 	else
 		data.discriminativeness = discriminativeness:cuda()
-                data.single_discriminative = single_discriminative:cuda():contiguous()
+                --data.single_discriminative = single_discriminative:cuda():contiguous()
 		data.images = {}
 		data.refs = {}
 		for i=1,self.game_size do

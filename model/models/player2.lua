@@ -26,23 +26,22 @@ function player2.model(game_size, feat_size, vocab_size, hidden_size, gpu)
 	end
 
 
-	-- Then convert to 3d -> batch_size x 2 x feat_size
+	-- Then convert to 3d -> batch_size x 2 x vocab_size
 	local properties_3d = nn.View(2,-1):setNumInputDims(1)(nn.JoinTable(2)(all_prop_vecs))
-	-- convert to batch_size * feat_size x 2
-	local properties_3d_b = nn.View(-1,game_size)(nn.Transpose({2,3})(properties_3d))
+
+        -- the attribute of P1
+        local property = nn.Identity()()
+        table.insert(inputs, property)
+	-- convert to 3d
+	local property_3d = nn.View(1,-1):setNumInputDims(1)(property)
+        
+	-- batch_size x 2
+	local selection = nn.MM(false,true)({properties_3d, property_3d})
+	local result = nn.View(-1,2)(selection)
 	
-	--hidden layer for discriminativeness
-	local hid = nn.Linear(game_size, hidden_size)(properties_3d_b)
-	hid =  nn.Sigmoid()(hid)
-	
-	--compute discriminativeness
-	local discr = nn.Linear(hidden_size,1)(hid)
-	
-	--reshaping to batch_size x feat_size
-	local result = nn.View(-1,vocab_size)(discr)
-	-- probabilities over discriminative
+	-- probabilities over input
 	local probs = nn.SoftMax()(result)
-	--take out discriminative 
+	
     	local outputs = {}
 	table.insert(outputs, probs)
 	
@@ -62,4 +61,4 @@ function player2.model(game_size, feat_size, vocab_size, hidden_size, gpu)
 	return model
 end
 
-return player1
+return player2

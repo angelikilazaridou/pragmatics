@@ -21,11 +21,13 @@ function players:__init(opt)
 	
 	if opt.gpuid == 0 then
 		-- categorical for selection of feature
-		self.selection = nn.ReinforceCategorical(true):cuda()
+		self.feature_selection = nn.ReinforceCategorical(true):cuda()
+		self.image_selection = nn.ReinforceCategorical(true):cuda()
 		-- baseline 
 	        self.baseline = nn.Sequential():add(nn.Constant(1,1)):add(nn.Add(1)):cuda()
 	else
-		self.selection = nn.ReinforceCategorical(true)
+		self.feature_selection = nn.ReinforceCategorical(true)
+		self.image_selection = nn.ReinforceCategorical(true)
 		self.baseline = nn.Sequential():add(nn.Constant(1,1)):add(nn.Add(1))
 	end
 
@@ -46,16 +48,20 @@ function players:updateOutput(input)
 	-- does a forward and gives back 1 action -> 1 feature
 	self.probs = self.player1:forward({im1a, im1b})
 	--sample a feature
-	self.sampled_feat = self.selection:forward({self.probs, temp})
-	
+	self.sampled_feat = self.feature_selection:forward({self.probs, temp})
+
+
 	-- player 2 receives 2 refs and 1 feature and predicts L or R
 	self.prediction = self.player2:forward({im2a, im2b, self.sampled_feat})
+
+	-- sample image
+	self.sampled_image = self.image_selection:forward({self.prediction, temp})
 	
 	-- baseline
 	local baseline = self.baseline:forward(torch.CudaTensor(self.batch_size,1))
 
 	local outputs = {}
-	table.insert(outputs, self.prediction)
+	table.insert(outputs, self.sampled_image)
 	table.insert(outputs, baseline)
 
 	return outputs
@@ -73,18 +79,21 @@ function players:updateGradInput(input, gradOutput)
         local temp = input[5]
 
 	-- ds
-	local dprediction = gradOutput[1][1]
+	local dsampled_image = gradOutput[1][1]
 	local dbaseline = gradOutput[1][2]
 
 	--backprop through baseline
 	--do not continue back-backpropagating through players 
 	self.baseline:backward(torch.CudaTensor(1,1),dbaseline)
 
+	--backrprop through image selection
+        local dprediction = self.image_selection:backward({self.prediction, temp}, dsampled_image)
+
 	--backprop through player 2 
 	local dsampled_feat = self.player2:backward({im2a, im2b, self.sampled_feat}, dprediction)
 
 	-- backprop though selection
-	local dprobs = self.selection:backward({self.probs, temp}, dsampled_feat)
+	local dprobs = self.feature_selection:backward({self.probs, temp}, dsampled_feat)
 	
 	--backrprop through player 1
 	dummy = self.player1:backward({im1a, im1b},dprobs)
@@ -100,19 +109,22 @@ function players:evaluate()
 	self.player1:evaluate()
         self.player2:evaluate()
 	self.baseline:evaluate()
-	self.selection:evaluate()
+	self.image_selection:evaluate()
+        self.feature_selection:evaluate()
 end
 
 function players:training()
 	self.player1:training()
         self.player2:training()
         self.baseline:training()
-	self.selection:training()
+	self.image_selection:training()
+	self.feature_selection:training()
 
 end
 
 function players:reinforce(reward)
-	self.selection:reinforce(reward)
+	self.image_selection:reinforce(reward)
+	self.feature_selection:reinforce(reward)
 end
 
 function players:parameters()
@@ -128,7 +140,7 @@ function players:parameters()
 	local grad_params = {}
  	for k,v in pairs(g1) do table.insert(grad_params, v) end
 	for k,v in pairs(g2) do table.insert(grad_params, v) end
-	for k,v in pairs(p3) do table.insert(grad_params, v) end
+	for k,v in pairs(g3) do table.insert(grad_params, v) end
 
 	return params, grad_params
 end
