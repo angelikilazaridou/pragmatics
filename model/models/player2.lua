@@ -1,4 +1,5 @@
 require 'misc.Peek'
+require 'misc.LinearNB'
 require 'nngraph'
 require 'dp'
 
@@ -17,7 +18,7 @@ function player2.model(game_size, feat_size, vocab_size, hidden_size, gpu)
 		table.insert(inputs, image)
 		
 		--map images to some property space
-		local property_vec = nn.Linear(feat_size, vocab_size)(image)
+		local property_vec = nn.LinearNB(feat_size, vocab_size)(image)
 		table.insert(shareList[1],property_vec)
 
 		local p_t = property_vec
