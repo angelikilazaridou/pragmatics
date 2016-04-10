@@ -125,8 +125,8 @@ function DataLoader:getBatch(opt)
 
    		--fetch single discrimitiveness and check if smaller than vocabulary
 		single_discriminative[{{i,i}}] = self.h5_file:read('single_label'):partial({ix,ix})
-		
-		if single_discriminative[{{i,i}}][1][1] <= self.vocab_size then
+		--print(single_discriminative[{{i,i}}][1][1])	
+		if single_discriminative[{{i,i}}][1][1]  then
 
 			--image representations
 			for ii=1,self.game_size do
@@ -159,9 +159,6 @@ function DataLoader:getBatch(opt)
 				discriminativeness[i] = discriminativeness[i] /den
 			end
 
-	
-
-			
 		
 
 			----  create data for P2
