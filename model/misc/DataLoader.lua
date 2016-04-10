@@ -172,10 +172,10 @@ function DataLoader:getBatch(opt)
 			---- assign shuffled data for P2
 			--local pos1 = (((referent_position%2)+1)%2)+1  --if ref == 1 -> 1 else 2
 			--local pos2 = (((referent_position%2)+2)%2)+1  --if ref == 1 -> 2 else 1
-			refs[1][i] = self.h5_file:read('/refs'):partial({ix,ix},{1,1},{1,self.vocab_size})
-			refs[2][i] = self.h5_file:read('/refs'):partial({ix,ix},{2,2},{1,self.vocab_size})
-			--refs[((referent_position+1)%2)+1][i] = self.h5_file:read('/refs'):partial({ix,ix},{1,1},{1,self.vocab_size})
-			--refs[((referent_position+2)%2)+1][i] = self.h5_file:read('/refs'):partial({ix,ix},{2,2},{1,self.vocab_size})
+			--refs[1][i] = self.h5_file:read('/refs'):partial({ix,ix},{1,1},{1,self.vocab_size})
+			--refs[2][i] = self.h5_file:read('/refs'):partial({ix,ix},{2,2},{1,self.vocab_size})
+			refs[((referent_position+1)%2)+1][i] = self.h5_file:read('/refs'):partial({ix,ix},{1,1},{1,self.vocab_size})
+			refs[((referent_position+2)%2)+1][i] = self.h5_file:read('/refs'):partial({ix,ix},{2,2},{1,self.vocab_size})
 
 			-- istead, randomly grab one from ref
 	                single_discriminative[{{i,i}}] = torch.multinomial(refs[1][i],1)
