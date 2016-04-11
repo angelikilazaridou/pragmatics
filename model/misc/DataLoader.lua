@@ -106,8 +106,6 @@ function DataLoader:getBatch(opt)
 	--the labels per game
 	local label_batch, discriminativeness,single_discriminative
 	label_batch =  torch.FloatTensor(batch_size, 1)
-	single_discriminative = torch.FloatTensor(batch_size, 1)
-	discriminativeness = torch.FloatTensor(batch_size, self.vocab_size):fill(0)
 
 	local max_index = #split_ix
 	local wrapped = false
@@ -123,81 +121,48 @@ function DataLoader:getBatch(opt)
    		ix = split_ix[ri]
    		assert(ix ~= nil, 'bug: split ' .. split .. ' was accessed out of bounds with ' .. ri)
 
-   		--fetch single discrimitiveness and check if smaller than vocabulary
-		single_discriminative[{{i,i}}] = self.h5_file:read('single_label'):partial({ix,ix})
-		--print(single_discriminative[{{i,i}}][1][1])	
-		if single_discriminative[{{i,i}}][1][1]  then
 
 			--image representations
-			for ii=1,self.game_size do
-				-- fetch bounding box id of images
-				local bb
-				if ii==1 then
-					bb = self.info.refs[ix].bb1_i
-				else
-					bb = self.info.refs[ix].bb2_i
-				end
-				--fetch respective image -- NOTE: transposed images 
-				-- for v2 transpose 1,2
-				local img
-				if self.images_size[1] == 4096 then
-		    			img = self.h5_images_file:read('/images'):partial({1,self.feat_size},{bb,bb})
-				else
-					img = self.h5_images_file:read('/images'):partial({bb,bb}, {1,self.feat_size})
-				end
-				--normalize to unit norm
-				local img_norm = torch.norm(img)
-		       		img = img/img_norm
-				--finally store image
-	    			img_batch[ii][i] = img
+		for ii=1,self.game_size do
+			-- fetch bounding box id of images
+			local bb
+			if ii==1 then
+				bb = self.info.refs[ix].bb1_i
+			else
+				bb = self.info.refs[ix].bb2_i
 			end
-
-			--fetch discriminativeness 
-			discriminativeness[i] = self.h5_file:read('/labels'):partial({ix,ix},{1,self.vocab_size})
-			local den = torch.sum(discriminativeness[i])
-			if den > 0 then
-				discriminativeness[i] = discriminativeness[i] /den
+			--fetch respective image -- NOTE: transposed images 
+			-- for v2 transpose 1,2
+			local img
+			if self.images_size[1] == 4096 then
+				img = self.h5_images_file:read('/images'):partial({1,self.feat_size},{bb,bb})
+			else
+				img = self.h5_images_file:read('/images'):partial({bb,bb}, {1,self.feat_size})
 			end
-
-		
-
-			----  create data for P2
-			--local referent_position = torch.random(self.game_size)  --- pick where to place the referent 
-			local referent_position = torch.random(2)
-			---- labels
-	    		label_batch[{ {i,i} }] = referent_position
-			---- assign shuffled data for P2
-			--local pos1 = (((referent_position%2)+1)%2)+1  --if ref == 1 -> 1 else 2
-			--local pos2 = (((referent_position%2)+2)%2)+1  --if ref == 1 -> 2 else 1
-			--refs[1][i] = self.h5_file:read('/refs'):partial({ix,ix},{1,1},{1,self.vocab_size})
-			--refs[2][i] = self.h5_file:read('/refs'):partial({ix,ix},{2,2},{1,self.vocab_size})
-			refs[((referent_position+1)%2)+1][i] = img_batch[1][i] --self.h5_file:read('/refs'):partial({ix,ix},{1,1},{1,self.vocab_size})
-			refs[((referent_position+2)%2)+1][i] = img_batch[2][i] --self.h5_file:read('/refs'):partial({ix,ix},{2,2},{1,self.vocab_size})
-
-			-- istead, randomly grab one from ref
-	                --single_discriminative[{{i,i}}] = torch.multinomial(refs[1][i],1)
-			--[[
-			local k = single_discriminative[{{i,i}}][1][1]
-			print(string.format('R:%s vs C:%s have %s',self.info.refs[ix].bb1,self.info.refs[ix].bb2,self.vocab[tostring(k)]))
-			for jj=1,self.vocab_size do
-				if refs[2][i][jj] == 1 then
-					print(self.vocab[tostring(jj)])
-				end
-			end--]]
-		
-		
-			i = i+1	
+			--normalize to unit norm
+			local img_norm = torch.norm(img)
+			img = img/img_norm
+			--finally store image
+	    		img_batch[ii][i] = img
 		end
-  	end
+
+
+		---  create data for P2
+		--local referent_position = torch.random(self.game_size)  --- pick where to place the referent 
+		local referent_position = torch.random(2)
+	    	label_batch[{ {i,i} }] = referent_position
+		refs[((referent_position+1)%2)+1][i] = img_batch[1][i] --self.h5_file:read('/refs'):partial({ix,ix},{1,1},{1,self.vocab_size})
+		refs[((referent_position+2)%2)+1][i] = img_batch[2][i] --self.h5_file:read('/refs'):partial({ix,ix},{2,2},{1,self.vocab_size})
+
+		i = i+1	
+
+	end
+
 	if self.gpu<0 then
-		data.discriminativeness = discriminativeness
-		--data.single_discriminative = single_discriminative:contiguous()
 	  	data.images = img_batch
 		data.refs = refs
 		data.referent_position = label_batch:contiguous() -- note: make label sequences go down as columns
 	else
-		data.discriminativeness = discriminativeness:cuda()
-                --data.single_discriminative = single_discriminative:cuda():contiguous()
 		data.images = {}
 		data.refs = {}
 		for i=1,self.game_size do

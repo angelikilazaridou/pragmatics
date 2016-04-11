@@ -47,16 +47,15 @@ function players:updateOutput(input)
 	--player 1 receives 2 images --
 	-- does a forward and gives back 1 action -> 1 feature
 	self.probs = self.player1:forward({im1a, im1b})
+	
 	--sample a feature
 	self.sampled_feat = self.feature_selection:forward({self.probs, temp})
-
 
 	-- player 2 receives 2 refs and 1 feature and predicts L or R
 	self.prediction = self.player2:forward({im2a, im2b, self.sampled_feat})
 
 	-- sample image
 	self.sampled_image = self.image_selection:forward({self.prediction, temp})
-	
 	-- baseline
 	local baseline = self.baseline:forward(torch.CudaTensor(self.batch_size,1))
 
