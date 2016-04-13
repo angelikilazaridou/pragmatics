@@ -151,6 +151,8 @@ function DataLoader:getBatch(opt)
 		--local referent_position = torch.random(self.game_size)  --- pick where to place the referent 
 		local referent_position = torch.random(2)
 	    	label_batch[{ {i,i} }] = referent_position
+ 		--refs[1][i] = img_batch[1][i]
+		--refs[2][i] = img_batch[2][i]
 		refs[((referent_position+1)%2)+1][i] = img_batch[1][i] --self.h5_file:read('/refs'):partial({ix,ix},{1,1},{1,self.vocab_size})
 		refs[((referent_position+2)%2)+1][i] = img_batch[2][i] --self.h5_file:read('/refs'):partial({ix,ix},{2,2},{1,self.vocab_size})
 

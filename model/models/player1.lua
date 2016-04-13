@@ -1,3 +1,4 @@
+require 'misc.LinearNB'
 require 'misc.Peek'
 require 'nngraph'
 require 'dp'
@@ -16,7 +17,7 @@ function player1.model(game_size, feat_size, vocab_size, hidden_size, gpu)
 		local image = nn.Identity()() --insert one image at a time
 		table.insert(inputs, image)
 		--map images to some property space
-		local property_vec = nn.Linear(feat_size, vocab_size)(image)
+		local property_vec = nn.LinearNB(feat_size, vocab_size)(image):annotate{name='property'}
 		table.insert(shareList[1],property_vec)
 
 		local p_t = property_vec
@@ -32,11 +33,11 @@ function player1.model(game_size, feat_size, vocab_size, hidden_size, gpu)
 	local properties_3d_b = nn.View(-1,game_size)(nn.Transpose({2,3})(properties_3d))
 	
 	--hidden layer for discriminativeness
-	local hid = nn.Linear(game_size, hidden_size)(properties_3d_b)
+	local hid = nn.LinearNB(game_size, hidden_size)(properties_3d_b)
 	hid =  nn.Sigmoid()(hid)
 	
 	--compute discriminativeness
-	local discr = nn.Linear(hidden_size,1)(hid)
+	local discr = nn.LinearNB(hidden_size,1)(hid)
 	
 	--reshaping to batch_size x feat_size
 	local result = nn.View(-1,vocab_size)(discr)

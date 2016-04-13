@@ -51,6 +51,12 @@ function players:updateOutput(input)
 	--sample a feature
 	self.sampled_feat = self.feature_selection:forward({self.probs, temp})
 
+	to_print = torch.random(1000)
+	if to_print%1000 == 0 then
+		print(self.sampled_feat)
+	end
+
+
 	-- player 2 receives 2 refs and 1 feature and predicts L or R
 	self.prediction = self.player2:forward({im2a, im2b, self.sampled_feat})
 
@@ -90,7 +96,7 @@ function players:updateGradInput(input, gradOutput)
 
 	--backprop through player 2 
 	local dsampled_feat = self.player2:backward({im2a, im2b, self.sampled_feat}, dprediction)
-
+	
 	-- backprop though selection
 	local dprobs = self.feature_selection:backward({self.probs, temp}, dsampled_feat)
 	

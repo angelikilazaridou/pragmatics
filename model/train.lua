@@ -18,6 +18,7 @@ cmd:text()
 cmd:text('Options')
 
 -- Data input settings
+cmd:option('-game_session','','Which game to play (v1=REFERIT, v2=OBJECTS, v3=SHAPES). If left empty, json/h5/images.h5 should be given seperately')
 cmd:option('-input_h5','../DATA/game/v3/data.h5','path to the h5file containing the preprocessed dataset')
 cmd:option('-input_json','../DATA/game/v3/data.json','path to the json file containing additional info and vocab')
 cmd:option('-input_h5_images','..DATA/game/v3/toy_images.h5','path to the h5 of the referit bounding boxes')
@@ -47,7 +48,7 @@ cmd:option('-optim_epsilon',1e-8,'epsilon that goes into denominator for smoothi
 cmd:option('-weight_decay',0,'Weight decay for L2 norm')
 cmd:option('-rewardScale','1','Scaling alpha of the reward')
 -- Evaluation/Checkpointing
-cmd:option('-val_images_use', 3200, 'how many images to use when periodically evaluating the validation loss? (-1 = all)')
+cmd:option('-val_images_use', 100, 'how many images to use when periodically evaluating the validation loss? (-1 = all)')
 cmd:option('-save_checkpoint_every', 100, 'how often to save a model checkpoint?')
 cmd:option('-checkpoint_path', 'test/', 'folder to save checkpoints into (empty = this folder)')
 cmd:option('-losses_log_every', 25, 'How often do we snapshot losses, for inclusion in the progress dump? (0 = disable)')
@@ -76,6 +77,28 @@ if opt.gpuid >= 0 then
   	cutorch.manualSeed(opt.seed)
   	cutorch.setDevice(opt.gpuid + 1) -- note +1 because lua is 1-indexed
 end
+
+
+------------------------------------------------------------------------------
+-- Input data
+------------------------------------------------------------------------------
+
+if opt.game_session == 'v1' then
+	opt.input_json = '../DATA/game/v1/data.json'
+	opt.input_h5 = '../DATA/game/v1/data.h5'
+	opt.input_h5_images = '..DATA/game/v1/ALL_REFERIT.h5'
+elseif opt.game_session == 'v2' then
+	opt.input_json = '../DATA/game/v2/data.json'
+        opt.input_h5 = '../DATA/game/v2/data.h5'
+        opt.input_h5_images = '..DATA/game/v2/images_single.h5'
+elseif opt.game_session == 'v3' then
+	opt.input_json = '../DATA/game/v3/data.json'
+        opt.input_h5 = '../DATA/game/v3/data.h5'
+        opt.input_h5_images = '..DATA/game/v3/toy_images.h5'
+else
+	print('No specific game. Data will be given by user')
+end
+
 
 -------------------------------------------------------------------------------
 -- Create the Data Loader instance
@@ -156,7 +179,16 @@ local function eval_split(split, evalopt)
     
     --forward model
     local outputs = protos.players:forward(inputs)
-    
+   
+    local nodes = protos.players.player1:listModules()[1]['forwardnodes']
+for _,node in ipairs(nodes) do
+ if node.data.annotations.name=='property' then
+    extended_dot_vector = node.data.module.weight
+    print('tralala')
+    print(extended_dot_vector)
+ end
+end
+ 
     --prepage gold data
     local gold
     if opt.crit == 'reward_discr' then
