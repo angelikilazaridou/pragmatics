@@ -184,7 +184,6 @@ local function eval_split(split, evalopt)
 for _,node in ipairs(nodes) do
  if node.data.annotations.name=='property' then
     extended_dot_vector = node.data.module.weight
-    print('tralala')
     print(extended_dot_vector)
  end
 end

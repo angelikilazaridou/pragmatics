@@ -16,9 +16,10 @@ function player2.model(game_size, feat_size, vocab_size, hidden_size, gpu)
 	for i=1,game_size do
 		local image = nn.Identity()() --insert one image at a time
 		table.insert(inputs, image)
-		
+
+		local dropped = nn.Dropout(0.5)(image)		
 		--map images to some property space
-		local property_vec = nn.LinearNB(feat_size, vocab_size)(image)
+		local property_vec = nn.LinearNB(feat_size, vocab_size)(dropped)
 		table.insert(shareList[1],property_vec)
 
 		local p_t = property_vec
