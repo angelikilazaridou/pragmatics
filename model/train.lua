@@ -1,4 +1,3 @@
-
 require 'torch'
 require 'rnn'
 require 'dpnn'
@@ -24,7 +23,7 @@ cmd:option('-input_json','../DATA/game/v3/data.json','path to the json file cont
 cmd:option('-input_h5_images','..DATA/game/v3/toy_images.h5','path to the h5 of the referit bounding boxes')
 cmd:option('-feat_size',-1,'The number of image features')
 cmd:option('-vocab_size',-1,'The number of properties')
-cmd:option('-game_size','2','Number of images in the game')
+cmd:option('-game_size',2,'Number of images in the game')
 -- Select model
 cmd:option('-crit','reward_discr','What criterion to use')
 cmd:option('-hidden_size',20,'The hidden size of the discriminative layer')
@@ -46,12 +45,13 @@ cmd:option('-optim_alpha',0.8,'alpha for adagrad/rmsprop/momentum/adam')
 cmd:option('-optim_beta',0.999,'beta used for adam')
 cmd:option('-optim_epsilon',1e-8,'epsilon that goes into denominator for smoothing')
 cmd:option('-weight_decay',0,'Weight decay for L2 norm')
-cmd:option('-rewardScale','1','Scaling alpha of the reward')
+cmd:option('-rewardScale',1,'Scaling alpha of the reward')
+cmd:option('-dropout',0.5,'Dropout in the visual input')
 -- Evaluation/Checkpointing
 cmd:option('-val_images_use', 100, 'how many images to use when periodically evaluating the validation loss? (-1 = all)')
-cmd:option('-save_checkpoint_every', 100, 'how often to save a model checkpoint?')
+cmd:option('-save_checkpoint_every', 1, 'how often to save a model checkpoint?')
 cmd:option('-checkpoint_path', 'test/', 'folder to save checkpoints into (empty = this folder)')
-cmd:option('-losses_log_every', 25, 'How often do we snapshot losses, for inclusion in the progress dump? (0 = disable)')
+cmd:option('-losses_log_every', 1, 'How often do we snapshot losses, for inclusion in the progress dump? (0 = disable)')
 -- misc
 cmd:option('-id', '', 'an id identifying this run/job. used in cross-val and appended when writing progress files')
 cmd:option('-seed', 123, 'random number generator seed to use')
@@ -115,6 +115,11 @@ local vocab_size = loader:getVocabSize()
 opt.vocab_size = vocab_size
 opt.game_size = game_size
 opt.feat_size = feat_size
+
+------------------------------------------------------------------------------
+-- Printing opt
+-----------------------------------------------------------------------------
+print(opt)
 
 -------------------------------------------------------------------------------
 -- Initialize the network
@@ -180,13 +185,14 @@ local function eval_split(split, evalopt)
     --forward model
     local outputs = protos.players:forward(inputs)
    
+    --[[
     local nodes = protos.players.player1:listModules()[1]['forwardnodes']
-for _,node in ipairs(nodes) do
- if node.data.annotations.name=='property' then
-    extended_dot_vector = node.data.module.weight
-    print(extended_dot_vector)
- end
-end
+    for _,node in ipairs(nodes) do
+       if node.data.annotations.name=='property' then
+          extended_dot_vector = node.data.module.weight
+          print(extended_dot_vector)
+       end
+    end--]]
  
     --prepage gold data
     local gold
@@ -305,17 +311,22 @@ while true do
 
  	-- eval loss/gradient
  	local losses = lossFun()
- 	if iter % opt.losses_log_every == 0 then loss_history[iter] = losses end
+
+	local loss = 0
+	local acc = 0
+ 	
+	if iter % opt.losses_log_every == 0 then loss_history[iter] = losses end
 
  	-- save checkpoint once in a while (or on final iteration)
  	if (iter % opt.save_checkpoint_every == 0 or iter == opt.max_iters) then
 
-  	print(string.format('Training loss %f',losses))
+  	--print(string.format('Training loss %f',losses))
     -- evaluate the validation performance
-    local loss,acc = eval_split('val', {val_images_use = opt.val_images_use, verbose=opt.verbose})
-    print(string.format('VALIDATION loss: %f and prediction accuracy %f and temperature %f temperature2 %f', loss, acc, opt.temperature, opt.temperature2))
+    loss,acc = eval_split('val', {val_images_use = opt.val_images_use, verbose=opt.verbose})
+    --print(string.format('VALIDATION loss: %f and prediction accuracy %f and temperature %f temperature2 %f', loss, acc, opt.temperature, opt.temperature2))
 
-		--keep test score for now
+    --[[
+    --keep test score for now
     val_acc_history[iter] = loss
     val_prop_acc_history[iter] = loss
 
@@ -346,9 +357,9 @@ while true do
  			  torch.save(checkpoint_path .. '.t7', checkpoint)
  			  print('wrote checkpoint to ' .. checkpoint_path .. '.t7')
 			end
-    end
+      end
+  --]]
   end
-
   -- decay the learning rate
   local learning_rate = opt.learning_rate
   if iter > opt.learning_rate_decay_start and opt.learning_rate_decay_start >= 0 then
@@ -362,7 +373,8 @@ while true do
   opt.temperature2 = math.min(1,opt.anneal_temperature * opt.temperature2)
 
 	if iter % opt.print_every == 0 then
-    print(string.format("%d, grad norm = %6.4e, param norm = %6.4e, grad/param norm = %6.4e, lr = %6.4e", iter, grad_params:norm(), params:norm(), grad_params:norm() / params:norm(), learning_rate))
+    --print(string.format("%d, grad norm = %6.4e, param norm = %6.4e, grad/param norm = %6.4e, lr = %6.4e", iter, grad_params:norm(), params:norm(), grad_params:norm() / params:norm(), learning_rate))
+      print(string.format("%d @ %f @ %f",iter, loss, acc))
   end
   -- perform a parameter update
   if opt.optim == 'rmsprop' then
@@ -385,10 +397,12 @@ while true do
  	iter = iter + 1
  	if iter % 10 == 0 then collectgarbage() end -- good idea to do this once in a while, i think
  	if loss0 == nil then loss0 = losses end
+
   --if losses > loss0 * 20 then
   --	print(string.format('loss seems to be exploding, quitting. %f vs %f', losses, loss0))
   --  break
   --end
+
   if opt.max_iters > 0 and iter >= opt.max_iters then break end -- stopping criterion
 
 end

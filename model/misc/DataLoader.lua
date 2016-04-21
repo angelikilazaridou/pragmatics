@@ -167,6 +167,7 @@ function DataLoader:getBatch(opt)
 	else
 		data.images = {}
 		data.refs = {}
+		
 		for i=1,self.game_size do
 	                table.insert(data.images, img_batch[i]:cuda())
         	        table.insert(data.refs, refs[i]:cuda())

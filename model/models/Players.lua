@@ -16,8 +16,8 @@ function players:__init(opt)
 	self.game_size = opt.game_size
 
 	--defining the two players
-	self.player1 = player1.model(opt.game_size, opt.feat_size, opt.vocab_size, opt.hidden_size, opt.gpuid) 
-	self.player2 = player2.model(opt.game_size, opt.feat_size, opt.vocab_size, opt.hidden_size, opt.gpuid)
+	self.player1 = player1.model(opt.game_size, opt.feat_size, opt.vocab_size, opt.hidden_size, opt.dropout, opt.gpuid) 
+	self.player2 = player2.model(opt.game_size, opt.feat_size, opt.vocab_size, opt.hidden_size, opt.dropout, opt.gpuid)
 	
 	if opt.gpuid == 0 then
 		-- categorical for selection of feature
@@ -51,10 +51,10 @@ function players:updateOutput(input)
 	--sample a feature
 	self.sampled_feat = self.feature_selection:forward({self.probs, temp})
 
-	to_print = torch.random(1000)
+	--[[to_print = torch.random(1000)
 	if to_print%1000 == 0 then
 		print(self.sampled_feat)
-	end
+	end--]]
 
 
 	-- player 2 receives 2 refs and 1 feature and predicts L or R

@@ -4,7 +4,7 @@ require 'nngraph'
 require 'dp'
 
 local player1 = {}
-function player1.model(game_size, feat_size, vocab_size, hidden_size, gpu)
+function player1.model(game_size, feat_size, vocab_size, hidden_size, dropout, gpu)
 
 
 	local shareList = {}
@@ -16,7 +16,7 @@ function player1.model(game_size, feat_size, vocab_size, hidden_size, gpu)
 	for i=1,game_size do
 		local image = nn.Identity()() --insert one image at a time
 		table.insert(inputs, image)
-		local dropped = nn.Dropout(0.5)(image)
+		local dropped = nn.Dropout(dropout)(image)
 		--map images to some property space
 		local property_vec = nn.LinearNB(feat_size, vocab_size)(dropped):annotate{name='property'}
 		table.insert(shareList[1],property_vec)
