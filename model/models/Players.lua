@@ -68,6 +68,7 @@ function players:updateOutput(input)
 	local outputs = {}
 	table.insert(outputs, self.sampled_image)
 	table.insert(outputs, baseline)
+	table.insert(outputs, self.sampled_feat)
 
 	return outputs
 end
@@ -86,6 +87,7 @@ function players:updateGradInput(input, gradOutput)
 	-- ds
 	local dsampled_image = gradOutput[1][1]
 	local dbaseline = gradOutput[1][2]
+		
 
 	--backprop through baseline
 	--do not continue back-backpropagating through players 

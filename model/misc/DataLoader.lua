@@ -11,6 +11,7 @@ function DataLoader:__init(opt)
 	self.vocab = self.info.ix_to_word
 	self.gpu = opt.gpu
   	self.vocab_size = self.info.vocab_size 
+	self.real_vocab_size = self.info.vocab_size
 	self.game_size = opt.game_size
 	if opt.vocab_size >0 then
 		self.vocab_size = opt.vocab_size
@@ -70,6 +71,9 @@ function DataLoader:getVocabSize()
 	return self.vocab_size
 end
 
+function DataLoader:getRealVocabSize()
+	return self.real_vocab_size
+end
 
 function DataLoader:getGameSize()
         return self.game_size
@@ -79,6 +83,9 @@ function DataLoader:getFeatSize()
         return self.feat_size
 end
 
+function DataLoader:getVocab()
+	return self.vocab
+end
 --[[
   Split is a string identifier (e.g. train|val|test)
   Returns a batch of data:
@@ -104,9 +111,9 @@ function DataLoader:getBatch(opt)
   	end
 
 	--the labels per game
-	local label_batch, discriminativeness,single_discriminative
-	label_batch =  torch.FloatTensor(batch_size, 1)
-
+	local discriminativeness = torch.FloatTensor(batch_size, self.real_vocab_size)
+	local label_batch =  torch.FloatTensor(batch_size, 1)
+	
 	local max_index = #split_ix
 	local wrapped = false
 	local infos = {}
@@ -144,6 +151,8 @@ function DataLoader:getBatch(opt)
 			img = img/img_norm
 			--finally store image
 	    		img_batch[ii][i] = img
+
+
 		end
 
 
@@ -156,14 +165,22 @@ function DataLoader:getBatch(opt)
 		refs[((referent_position+1)%2)+1][i] = img_batch[1][i] --self.h5_file:read('/refs'):partial({ix,ix},{1,1},{1,self.vocab_size})
 		refs[((referent_position+2)%2)+1][i] = img_batch[2][i] --self.h5_file:read('/refs'):partial({ix,ix},{2,2},{1,self.vocab_size})
 
+		-- discriminative information
+		discriminativeness[{i,{1,self.real_vocab_size}}] = self.h5_file:read('/labels'):partial({ix,ix},{1,self.real_vocab_size})
 		i = i+1	
 
+		-- meta
+		local info_struct = {}
+		info_struct.bb1 = self.info.refs[ix].bb1
+		info_struct.bb2 = self.info.refs[ix].bb2
+		table.insert(infos,info_struct)
 	end
 
 	if self.gpu<0 then
 	  	data.images = img_batch
 		data.refs = refs
 		data.referent_position = label_batch:contiguous() -- note: make label sequences go down as columns
+		data.discriminativeness = discriminativeness
 	else
 		data.images = {}
 		data.refs = {}
@@ -173,8 +190,10 @@ function DataLoader:getBatch(opt)
         	        table.insert(data.refs, refs[i]:cuda())
 		end
                 data.referent_position = label_batch:cuda():contiguous() -- note: make label sequences go down as columns
+		data.discriminativeness = discriminativeness:cuda()
 	end
 		data.bounds = {it_pos_now = self.iterators[split], it_max = #split_ix, wrapped = wrapped}
+		data.infos = infos
   	return data
 end
 

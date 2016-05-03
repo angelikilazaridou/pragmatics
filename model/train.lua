@@ -12,7 +12,7 @@ require 'models.Players'
 -------------------------------------------------------------------------------
 cmd = torch.CmdLine()
 cmd:text()
-cmd:text('Model vs Oracle')
+cmd:text('Model vs Model')
 cmd:text()
 cmd:text('Options')
 
@@ -28,8 +28,9 @@ cmd:option('-game_size',2,'Number of images in the game')
 cmd:option('-crit','reward_discr','What criterion to use')
 cmd:option('-hidden_size',20,'The hidden size of the discriminative layer')
 cmd:option('-scale_output',0,'Whether to add a sigmoid at the output of the model')
+cmd:option('-dropout',0,'Dropout in the visual input')
 -- Optimization: General
-cmd:option('-max_iters', -1, 'max number of iterations to run for (-1 = run forever)')
+cmd:option('-max_iters', 3500, 'max number of iterations to run for (-1 = run forever)')
 cmd:option('-batch_size',32,'what is the batch size of games')
 cmd:option('-grad_clip',0.1,'clip gradients at this value (note should be lower than usual 5 because we normalize grads by both batch and seq_length)')
 -- Optimization: for the model
@@ -46,18 +47,17 @@ cmd:option('-optim_beta',0.999,'beta used for adam')
 cmd:option('-optim_epsilon',1e-8,'epsilon that goes into denominator for smoothing')
 cmd:option('-weight_decay',0,'Weight decay for L2 norm')
 cmd:option('-rewardScale',1,'Scaling alpha of the reward')
-cmd:option('-dropout',0.5,'Dropout in the visual input')
 -- Evaluation/Checkpointing
 cmd:option('-val_images_use', 100, 'how many images to use when periodically evaluating the validation loss? (-1 = all)')
-cmd:option('-save_checkpoint_every', 1, 'how often to save a model checkpoint?')
-cmd:option('-checkpoint_path', 'test/', 'folder to save checkpoints into (empty = this folder)')
+cmd:option('-save_checkpoint_every', 3500, 'how often to save a model checkpoint?')
+cmd:option('-checkpoint_path', 'conll/', 'folder to save checkpoints into (empty = this folder)')
 cmd:option('-losses_log_every', 1, 'How often do we snapshot losses, for inclusion in the progress dump? (0 = disable)')
 -- misc
 cmd:option('-id', '', 'an id identifying this run/job. used in cross-val and appended when writing progress files')
 cmd:option('-seed', 123, 'random number generator seed to use')
 cmd:option('-gpuid', 0, 'which gpu to use. -1 = use CPU')
 cmd:option('-verbose',false,'How much info to give')
-cmd:option('-print_every',1000,'Print some statistics')
+cmd:option('-print_every',1,'Print some statistics')
 cmd:text()
 
 
@@ -65,7 +65,7 @@ cmd:text()
 -- Basic Torch initializations
 -------------------------------------------------------------------------------
 local opt = cmd:parse(arg)
-opt.id = '_h@'..opt.hidden_size..'_k@'..'_scOut@'..opt.scale_output..'_w@'..opt.weight_decay..'_lr@'..opt.learning_rate..'_dlr@'..opt.learning_rate_decay_every
+opt.id = '_g@'..opt.game_session..'_h@'..opt.hidden_size..'_d@'..opt.dropout..'_f@'..opt.feat_size..'_a@'..opt.vocab_size
 
 
 torch.manualSeed(opt.seed)
@@ -299,10 +299,9 @@ end
 local loss0
 local optim_state = {}
 local cnn_optim_state = {}
-local loss_history = {}
 local val_acc_history = {}
-local val_prop_acc_history = {}
-local best_score
+local loss_history = {}
+local best_score=nil
 local checkpoint_path = opt.checkpoint_path .. 'cp_id' .. opt.id ..'.cp'
 
 
@@ -314,52 +313,42 @@ while true do
 
 	local loss = 0
 	local acc = 0
- 	
-	if iter % opt.losses_log_every == 0 then loss_history[iter] = losses end
+
+	if iter % opt.print_every == 0 then
+		--evaluate val performance 
+		loss,acc = eval_split('val', {val_images_use = opt.val_images_use, verbose=opt.verbose})
+		val_acc_history[iter] = acc
+		loss_history[iter] = losses
+	end
 
  	-- save checkpoint once in a while (or on final iteration)
  	if (iter % opt.save_checkpoint_every == 0 or iter == opt.max_iters) then
 
-  	--print(string.format('Training loss %f',losses))
-    -- evaluate the validation performance
-    loss,acc = eval_split('val', {val_images_use = opt.val_images_use, verbose=opt.verbose})
-    --print(string.format('VALIDATION loss: %f and prediction accuracy %f and temperature %f temperature2 %f', loss, acc, opt.temperature, opt.temperature2))
 
-    --[[
-    --keep test score for now
-    val_acc_history[iter] = loss
-    val_prop_acc_history[iter] = loss
+    	-- write a (thin) json report
+    	local checkpoint = {}
+    	checkpoint.opt = opt
+    	checkpoint.iter = iter
+    	checkpoint.loss_history = loss_history
+    	checkpoint.val_acc_history = val_acc_history
 
-    -- write a (thin) json report
-    local checkpoint = {}
-    checkpoint.opt = opt
-    checkpoint.iter = iter
-    checkpoint.loss_history = loss_history
-    checkpoint.val_acc_history = val_acc_history
-    checkpoint.val_prop_acc_history = val_prop_acc_history
-    checkpoint.val_predictions = val_predictions 
+    	utils.write_json(checkpoint_path .. '.json', checkpoint)
+    	--print('wrote json checkpoint to ' .. checkpoint_path .. '.json')
 
-    utils.write_json(checkpoint_path .. '.json', checkpoint)
-    print('wrote json checkpoint to ' .. checkpoint_path .. '.json')
-
-    -- write the full model checkpoint as well if we did better than ever
-    local current_score = loss
+    	-- write the full model checkpoint as well if we did better than ever
+    	local current_score = loss
     
-    if best_score == nil or current_score >= best_score then
-      best_score = current_score
-      if iter > 0 then -- dont save on very first iteration
+      		if iter > 0 then -- dont save on very first iteration
  			  -- include the protos (which have weights) and save to file
  			  local save_protos = {}
- 			  save_protos.model = protos.model -- these are shared clones, and point to correct param storage
+ 			  save_protos.model = protos.players -- these are shared clones, and point to correct param storage
  			  checkpoint.protos = save_protos
  			  -- also include the vocabulary mapping so that we can use the checkpoint 
  			  -- alone to run on arbitrary images without the data loader
  			  torch.save(checkpoint_path .. '.t7', checkpoint)
- 			  print('wrote checkpoint to ' .. checkpoint_path .. '.t7')
-			end
+ 			  --print('wrote checkpoint to ' .. checkpoint_path .. '.t7')
+		end
       end
-  --]]
-  end
   -- decay the learning rate
   local learning_rate = opt.learning_rate
   if iter > opt.learning_rate_decay_start and opt.learning_rate_decay_start >= 0 then
@@ -403,6 +392,6 @@ while true do
   --  break
   --end
 
-  if opt.max_iters > 0 and iter >= opt.max_iters then break end -- stopping criterion
+  if opt.max_iters+1 > 0 and iter >= opt.max_iters+1 then break end -- stopping criterion
 
 end
