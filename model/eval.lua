@@ -6,6 +6,7 @@ local utils = require 'misc.utils'
 require 'misc.DataLoader'
 require 'misc.optim_updates'
 require 'models.Players'
+require 'gnuplot'
 
 -------------------------------------------------------------------------------
 -- Input arguments and options
@@ -118,13 +119,20 @@ local function eval_split(split, evalopt)
   local loss_sum = 0
   local loss_evals = 0
   local acc = 0
+
+  --keep the count of predicted attributes  
   local predicted = torch.DoubleTensor(opt.vocab_size):fill(0)
+ 
   local matrix = torch.DoubleTensor(loader:getRealVocabSize(),opt.vocab_size):fill(0)
+ 
+  referent_attrs = {}
+  context_attrs = {}
+  keyset = {} 
 	
 	while true do
 
   		-- get batch of data  
-    		local data = loader:getBatch{batch_size = opt.batch_size, split = 'val'}
+    		local data = loader:getBatch{batch_size = opt.batch_size, split = 'train'}
 
 
     		local inputs = {}
@@ -157,6 +165,21 @@ local function eval_split(split, evalopt)
 				if outputs[3][k][a] == 1 then
 					predicted_attribute = a
 					predicted[a] = predicted[a]+1
+					
+					if referent_attrs[data.infos[k].bb1] == nil then
+						referent_attrs[data.infos[k].bb1] = torch.DoubleTensor(opt.vocab_size):fill(0)
+						context_attrs[data.infos[k].bb1] = torch.DoubleTensor(opt.vocab_size):fill(0)
+						keyset[#keyset+1]=data.infos[k].bb1
+
+					end
+					if context_attrs[data.infos[k].bb2] == nil then
+                                                referent_attrs[data.infos[k].bb2] = torch.DoubleTensor(opt.vocab_size):fill(0)
+                                                context_attrs[data.infos[k].bb2] = torch.DoubleTensor(opt.vocab_size):fill(0)
+						keyset[#keyset+1]=data.infos[k].bb2
+                                        end
+					
+					referent_attrs[data.infos[k].bb1][predicted_attribute] = 1 --referent_attrs[data.infos[k].bb1][predicted_attribute]+1
+					context_attrs[data.infos[k].bb2][predicted_attribute] = 1 --context_attrs[data.infos[k].bb2][predicted_attribute]+1
 					--print(string.format('%s -- %s -- %d',data.infos[k].bb1,data.infos[k].bb2,a))
 					break
 				end
@@ -191,16 +214,44 @@ acc, predicted, matrix,vocab = eval_split('val', {val_images_use = opt.val_image
 
 print(acc)
 
-print(predicted)
---print(matrix)
-    
 
--- if game = 2, reorder
+-- EXP1: align latent to gold (only SHAPES)
+-- see if you can align -- for each latent keep the maximum fitting 
+-- (in terms of images) gold attribute. Make sure that 
+-- this gold attribute cannot be used again.
+if opt.vocab_size == loader:getRealVocabSize() and opt.game_session=='v3' then
+	--diagonalize values
+	new_matrix  = torch.DoubleTensor(matrix:size(1),matrix:size(2)):fill(0)
+	old_matrix  = torch.DoubleTensor(matrix:size(1),matrix:size(2))
+	old_matrix:copy(matrix:transpose(1,2)) --rows are latent
+	
+	labels = 'set ytics ('
+	for s=1,matrix:size(1) do
+		labels = labels .. '\"'.. vocab[tostring(s)]..'\" '..tostring(s-1)..', '
+		--maximum fitting gold attribute
+		vals, idx = torch.sort(old_matrix[s],true)
+		bst_attr = idx[1]
+		new_matrix[s][s] = vals[1]
+		--make sure bst_attr cannot be used again
+		old_matrix[{{1,opt.vocab_size},idx[1]}] = 0
+	end
+	labels = labels..')'
+	gnuplot.epsfigure(opt.game_session..'_attribute_usage.eps')
+	if opt.game_session == 'v3' then
+		gnuplot.raw(labels)
+	end
+	gnuplot.imagesc(new_matrix,'color')
+	gnuplot.plotflush()
+end
+
+-- EXP2: plot pairwise similarities of objects (only OBJECTS)
+-- reorder the rows so that they are based on category defined in concepts_cats.txt
+-- then plot similarity matrix in the latent attribute vector space
 if opt.game_session == 'v2' then
-
 	concepts_f = 'scripts/concepts_cats.txt'
 	f = io.open(concepts_f,'r')
 	mapping = {}	
+
 	i = 1
 	while true do
         	line = f:read()
@@ -208,7 +259,6 @@ if opt.game_session == 'v2' then
                 	break
         	end
 		local c  = line:split("%s")[1]
-		local found = 0
 		for s=1,matrix:size(1) do
 			if vocab[tostring(s)] == c then
 				mapping[i] = s
@@ -217,17 +267,50 @@ if opt.game_session == 'v2' then
 		end
 		i = i+1
 	end
-	print(mapping)
-end
-local r_norm_m = matrix:norm(2,2)
-matrix:cdiv(r_norm_m:expandAs(matrix))
+	new_matrix  = torch.DoubleTensor(matrix:size(1), matrix:size(2))
 
--- cosine
-local cosine = matrix * matrix:transpose(1,2)
+	--normalize for cosine
+	local r_norm_m = matrix:norm(2,2)
+	matrix:cdiv(r_norm_m:expandAs(matrix))
 
--- ranking
-for s = 1,matrix:size(1) do
-    vals,index = torch.sort(cosine:select(1,s),true) -- sort rows
---    print(string.format('%s similar to %s (%f)',vocab[tostring(s)],vocab[tostring(index[2])], vals[2])) -- 2 cause 1 is the same
+	--re-order
+	for c=1,matrix:size(1) do
+		new_matrix[c] = matrix[mapping[c]]
+	end
+
+	local cosine = matrix * matrix:transpose(1,2)
+	
+	gnuplot.epsfigure('shuffles.eps')
+	gnuplot.imagesc(cosine,'color')
+	gnuplot.plotflush()
+
+	matrix = new_matrix
+	cosine = matrix * matrix:transpose(1,2)
+	gnuplot.epsfigure('correct.eps')
+        gnuplot.imagesc(cosine,'color')
+        gnuplot.plotflush()
+
 end
+
+--EXP3: compute the Marco measure of coherence (ALL)
+-- ideally, attributes should not be used with images that are both in the context and referent position
+inter = torch.DoubleTensor(opt.vocab_size):fill(0)
+union = torch.DoubleTensor(opt.vocab_size):fill(0)
+
+for a=1,opt.vocab_size do
+	for k=1,#keyset do
+		img = keyset[k]
+		if referent_attrs[img][a]==1 and context_attrs[img][a]==1 then -- intersection
+			inter[a] = inter[a] + 1
+		end
+		if referent_attrs[img][a]==1 or context_attrs[img][a]==1 then  -- union
+                        union[a] = union[a] + 1
+                end
+
+	end
+	if union[a] > 0 then
+		print(string.format("Attribute %d has %f when used %d",a,inter[a]/union[a], predicted[a]))
+	end
+end
+
 
