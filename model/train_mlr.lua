@@ -46,6 +46,7 @@ cmd:option('-optim_alpha',0.8,'alpha for adagrad/rmsprop/momentum/adam')
 cmd:option('-optim_beta',0.999,'beta used for adam')
 cmd:option('-optim_epsilon',1e-8,'epsilon that goes into denominator for smoothing')
 cmd:option('-weight_decay',0,'Weight decay for L2 norm')
+cmd:option('-weight_1',1.2,'Weight decay for L2 norm')
 -- Evaluation/Checkpointing
 cmd:option('-val_images_use', 3200, 'how many images to use when periodically evaluating the validation loss? (-1 = all)')
 cmd:option('-save_checkpoint_every', 100, 'how often to save a model checkpoint?')
@@ -119,12 +120,14 @@ else
   print(string.format('Wrong model:%s',opt.model))
 end
 
+local weight_mlr = {1,1}
+weight_mlr[2] = tonumber(opt.weight_1)
 --add criterion
 if opt.crit == 'MSE' then
   protos.criterion = nn.MSECriterion()
 else 
   if opt.crit == 'MLR' then
-    protos.criterion = nn.MultiLR()
+    protos.criterion = nn.MultiLR(weight_mlr)
   else 
     print(string.format('Wrong criterion: %s',opt.crit))
   end
