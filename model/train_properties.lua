@@ -7,6 +7,7 @@ require 'cunn'
 local utils = require 'misc.utils'
 local PropertyLoader = require 'misc.PropertyLoader'
 require 'misc.optim_updates'
+require 'misc.MultiLogisticRegression'
 local baseline_model = require 'models.lg_property_baseline'
 -------------------------------------------------------------------------------
 -- Input arguments and options
@@ -30,6 +31,7 @@ cmd:option('-max_iters', -1, 'max number of iterations to run for (-1 = run fore
 cmd:option('-batch_size',16,'what is the batch size in number of images per batch? (there will be x seq_per_img sentences)')
 cmd:option('-grad_clip',0.1,'clip gradients at this value (note should be lower than usual 5 because we normalize grads by both batch and seq_length)')
 -- Optimization: for the model
+cmd:option('-weight_1',2,'Weight for class 1')
 cmd:option('-optim','adam','what update to use? rmsprop|sgd|sgdmom|adagrad|adam')
 cmd:option('-learning_rate',0.009,'learning rate')
 cmd:option('-learning_rate_decay_start', -1, 'at what iteration to start decaying learning rate? (-1 = dont)')
@@ -93,10 +95,16 @@ print(string.format('Parameters are model=%s feat_size=%d, vocab_size=%d,to_shar
 protos.model = baseline_model.create_model(feat_size, vocab_size, opt.hidden_size, opt.gpuid)
 
 --add criterion
+local weight_mlr = {1,1}
+weight_mlr[2] = tonumber(opt.weight_1)
 if opt.crit == 'MSE' then
   protos.criterion = nn.MSECriterion()
-else  
-  print(string.format('Wrong criterion: %s',opt.crit))
+else 
+  if opt.crit == 'MLR' then
+    protos.criterion = nn.MultiLR(weight_mlr)
+  else 
+    print(string.format('Wrong criterion: %s',opt.crit))
+  end
 end
 
 -- ship criterion to GPU, model is shipped dome inside model
