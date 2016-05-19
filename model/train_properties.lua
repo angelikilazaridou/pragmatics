@@ -48,7 +48,7 @@ cmd:option('-losses_log_every', 25, 'How often do we snapshot losses, for inclus
 -- misc
 cmd:option('-id', '', 'an id identifying this run/job. used in cross-val and appended when writing progress files')
 cmd:option('-seed', 123, 'random number generator seed to use')
-cmd:option('-gpuid', -1, 'which gpu to use. -1 = use CPU')
+cmd:option('-gpuid', 0, 'which gpu to use. -1 = use CPU')
 cmd:option('-verbose',false,'How much info to give')
 cmd:option('-print_every',1000,'Print some statistics')
 cmd:text()
@@ -138,8 +138,8 @@ local function eval_split(split, evalopt)
     local data = loader:getBatch{batch_size = opt.batch_size, split = split}
 
     -- forward the model to get loss
-    local outputs = protos.model:forward(data[1])
-    local labels = data[2]
+    local outputs = protos.model:forward(data[1]:cuda())
+    local labels = data[2]:cuda()
     --compute accuracy
     local predicted2 = outputs:clone()
     predicted2:apply(function(x) if x>0.5 then return 1 else return 0 end end)
@@ -178,8 +178,8 @@ local function lossFun()
     local data = loader:getBatch{batch_size = opt.batch_size, split = 'train'}
   
     -- forward the model on images (most work happens here)
-  local inputs = data[1]
-  local labels = data[2]
+  local inputs = data[1]:cuda()
+  local labels = data[2]:cuda()
   --getting property vectoes and loss
   --print(inputs)
   local outputs = protos.model:forward(inputs)
@@ -226,7 +226,7 @@ while true do
     if (iter % opt.save_checkpoint_every == 0 or iter == opt.max_iters) then
 
         -- evaluate the validation performance
-        local precision, recall, sparsity =  eval_split('test', {val_images_use = opt.val_images_use, verbose=opt.verbose})
+        local precision, recall, sparsity =  eval_split('train', {val_images_use = opt.val_images_use, verbose=opt.verbose})
         local f1 = 2 * precision * recall / (precision + recall)
         print(string.format('tst precision : %f recall: %f  f1: %f   (sparsity: %f', precision , recall,  f1, sparsity))
 

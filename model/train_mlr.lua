@@ -22,8 +22,8 @@ cmd:text()
 cmd:text('Options')
 
 -- Data input settings
-cmd:option('-input_h5','/home/thenghiapham/work/project/pragmatics/DATA/visAttCarina/processed/0shot_single/data.h5', 'path to the h5file containing the preprocessed dataset')
-cmd:option('-input_json','/home/thenghiapham/work/project/pragmatics/DATA/visAttCarina/processed/0shot_single/data.json','path to the json file containing additional info and vocab')
+cmd:option('-input_h5','/home/thenghiapham/work/project/pragmatics/DATA/visAttCarina/processed/0shot_single_test/data.h5', 'path to the h5file containing the preprocessed dataset')
+cmd:option('-input_json','/home/thenghiapham/work/project/pragmatics/DATA/visAttCarina/processed/0shot_single_test/data.json','path to the json file containing additional info and vocab')
 cmd:option('-feat_size',-1,'The number of image features')
 cmd:option('-vocab_size',-1,'The number of properties')
 cmd:option('-single_images',1,'Whether to train on centroid or not')
@@ -321,7 +321,7 @@ local loss_history = {}
 local val_acc_history = {}
 local val_prop_acc_history = {}
 local best_score
-local checkpoint_path = opt.checkpoint_path .. 'cp_id' .. opt.id ..'.cp'
+local checkpoint_path = opt.checkpoint_path .. 'cp_id' .. opt.id .. opt.crit .. '.cp'
 
 while true do  
 
