@@ -119,9 +119,12 @@ local function eval_split(split, evalopt)
 
                 -- forward the model to get loss
                 local properties1 = protos.model:forward(data.images[1])
-                local properties2 = protos.model:forward(data.images[2])
-                local outputs = properties1 - properties2
+                local properties2 = protos.model_clone:forward(data.images[2])
+                --print("sum1: " .. properties1:sum())
+                --print("sum2: " .. properties2:sum())
 
+                local outputs = properties1 - properties2
+                --print("diff sum: " .. outputs:sum())
     --get in a tensor the properties
     
     local loss
