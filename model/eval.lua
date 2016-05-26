@@ -132,7 +132,7 @@ local function eval_split(split, evalopt)
 	while true do
 
   		-- get batch of data  
-    		local data = loader:getBatch{batch_size = opt.batch_size, split = 'train'}
+    		local data = loader:getBatch{batch_size = opt.batch_size, split = 'val'}
 
 
     		local inputs = {}
@@ -231,6 +231,7 @@ if opt.vocab_size == loader:getRealVocabSize() and opt.game_session=='v3' then
 		--maximum fitting gold attribute
 		vals, idx = torch.sort(old_matrix[s],true)
 		bst_attr = idx[1]
+		if vals[1]>0 then vals[1] = 1 end --discretize
 		new_matrix[s][s] = vals[1]
 		--make sure bst_attr cannot be used again
 		old_matrix[{{1,opt.vocab_size},idx[1]}] = 0
@@ -297,6 +298,7 @@ end
 inter = torch.DoubleTensor(opt.vocab_size):fill(0)
 union = torch.DoubleTensor(opt.vocab_size):fill(0)
 
+active = 0
 for a=1,opt.vocab_size do
 	for k=1,#keyset do
 		img = keyset[k]
@@ -310,7 +312,9 @@ for a=1,opt.vocab_size do
 	end
 	if union[a] > 0 then
 		print(string.format("Attribute %d has %f when used %d",a,inter[a]/union[a], predicted[a]))
+		active = active + 1
 	end
 end
 
+print(string.format("Number of active attributes: %d",active))
 
