@@ -30,7 +30,7 @@ function DataLoader:__init(opt)
         print(self.images_size)
   	assert(#self.images_size == 2, '/images should be a 2D tensor')
 	local feat_size 
-	if self.images_size[1] == 4096 then
+	if self.images_size[1] == 4095 then
   		self.num_images = self.images_size[2]
 		feat_size = self.images_size[1]
 	else
@@ -141,16 +141,22 @@ function DataLoader:getBatch(opt)
 			--fetch respective image -- NOTE: transposed images 
 			-- for v2 transpose 1,2
 			local img
+			timer = torch.Timer()
 			if self.images_size[1] == 4096 then
 				img = self.h5_images_file:read('/images'):partial({1,self.feat_size},{bb,bb})
 			else
 				img = self.h5_images_file:read('/images'):partial({bb,bb}, {1,self.feat_size})
 			end
+			timer:stop()
+			print('Time elapsed in image read:' .. timer:time().real .. ' seconds')
 			--normalize to unit norm
 			local img_norm = torch.norm(img)
 			img = img/img_norm
 			--finally store image
+			timer = torch.Timer()
 	    		img_batch[ii][i] = img
+			timer:stop()
+			print('Time elapsed in img_batch[ii][i] = img:' .. timer:time().real .. ' seconds')
 
 
 		end

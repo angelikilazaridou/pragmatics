@@ -86,11 +86,11 @@ end
 if opt.game_session == 'v1' then
 	opt.input_json = '../DATA/game/v1/data.json'
 	opt.input_h5 = '../DATA/game/v1/data.h5'
-	opt.input_h5_images = '..DATA/game/v1/ALL_REFERIT.h5'
+	opt.input_h5_images = '..DATA/game/v1/vectors_transposed.h5'
 elseif opt.game_session == 'v2' then
 	opt.input_json = '../DATA/game/v2/data.json'
         opt.input_h5 = '../DATA/game/v2/data.h5'
-        opt.input_h5_images = '..DATA/game/v2/images_single.h5'
+        opt.input_h5_images = '..DATA/game/v2/vectors_transposed.h5'
 elseif opt.game_session == 'v3' then
 	opt.input_json = '../DATA/game/v3/data.json'
         opt.input_h5 = '../DATA/game/v3/data.h5'
