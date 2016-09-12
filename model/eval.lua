@@ -33,6 +33,7 @@ cmd:option('-val_images_use', 1000, 'how many images to use when periodically ev
 cmd:option('-seed', 123, 'random number generator seed to use')
 cmd:option('-gpuid', 0, 'which gpu to use. -1 = use CPU')
 cmd:option('-verbose',false,'How much info to give')
+cmd:option('-split','val','What split to use to evaluate')
 cmd:text()
 
 
@@ -133,7 +134,7 @@ local function eval_split(split, evalopt)
 	while true do
 
   		-- get batch of data  
-    		local data = loader:getBatch{batch_size = opt.batch_size, split = 'val'}
+    		local data = loader:getBatch{batch_size = opt.batch_size, split = split}
 
 
     		local inputs = {}
@@ -179,8 +180,8 @@ local function eval_split(split, evalopt)
 						keyset[#keyset+1]=data.infos[k].bb2
                                         end
 					
-					referent_attrs[data.infos[k].bb1][predicted_attribute] = 1 --referent_attrs[data.infos[k].bb1][predicted_attribute]+1
-					context_attrs[data.infos[k].bb2][predicted_attribute] = 1 --context_attrs[data.infos[k].bb2][predicted_attribute]+1
+					referent_attrs[data.infos[k].bb1][predicted_attribute] = referent_attrs[data.infos[k].bb1][predicted_attribute]+1
+					context_attrs[data.infos[k].bb2][predicted_attribute]  = context_attrs[data.infos[k].bb2][predicted_attribute]+1
 					--print(string.format('%s -- %s -- %d',data.infos[k].bb1,data.infos[k].bb2,a))
 					break
 				end
@@ -211,16 +212,18 @@ local function eval_split(split, evalopt)
 
 end
 
-acc, predicted, matrix,vocab = eval_split('val', {val_images_use = opt.val_images_use, verbose=opt.verbose})
+acc, predicted, matrix,vocab = eval_split(opt.split, {val_images_use = opt.val_images_use, verbose=opt.verbose})
 
 print(acc)
 
+do_exp1 = 0
+do_exp2 = 0
 
 -- EXP1: align latent to gold (only SHAPES)
 -- see if you can align -- for each latent keep the maximum fitting 
 -- (in terms of images) gold attribute. Make sure that 
 -- this gold attribute cannot be used again.
-if opt.vocab_size == loader:getRealVocabSize() and opt.game_session=='v3' then
+if opt.vocab_size == loader:getRealVocabSize() and opt.game_session=='v3' and do_exp1 == 1 then
 	--diagonalize values
 	new_matrix  = torch.DoubleTensor(matrix:size(1),matrix:size(2)):fill(0)
 	old_matrix  = torch.DoubleTensor(matrix:size(1),matrix:size(2))
@@ -249,7 +252,7 @@ end
 -- EXP2: plot pairwise similarities of objects (only OBJECTS)
 -- reorder the rows so that they are based on category defined in concepts_cats.txt
 -- then plot similarity matrix in the latent attribute vector space
-if opt.game_session == 'v2' then
+if opt.game_session == 'v2' and do_exp2 ==1 then
 	concepts_f = 'scripts/concepts_cats.txt'
 	f = io.open(concepts_f,'r')
 	mapping = {}	
@@ -303,10 +306,10 @@ active = 0
 for a=1,opt.vocab_size do
 	for k=1,#keyset do
 		img = keyset[k]
-		if referent_attrs[img][a]==1 and context_attrs[img][a]==1 then -- intersection
+		if referent_attrs[img][a]>=1 and context_attrs[img][a]>=1 then -- intersection
 			inter[a] = inter[a] + 1
 		end
-		if referent_attrs[img][a]==1 or context_attrs[img][a]==1 then  -- union
+		if referent_attrs[img][a]>=1 or context_attrs[img][a]>=1 then  -- union
                         union[a] = union[a] + 1
                 end
 
@@ -316,6 +319,42 @@ for a=1,opt.vocab_size do
 		active = active + 1
 	end
 end
+
+--EXP4: compute nearest neighbor of  each annotation in attribute space 
+
+--normalize for cosine
+local r_norm_m = matrix:norm(2,2)
+local matrix2 = matrix:clone()
+matrix2:cdiv(r_norm_m:expandAs(matrix2))
+--compute cosine between annotations
+sims = -matrix2 * matrix2:t()  
+
+sorted, indices = torch.sort(sims, 2)
+for f=1,matrix:size(1) do
+    print(string.format("[%d] %s --> %s (%f)",f, vocab[tostring(f)],vocab[tostring(indices[f][2])], sorted[f][2]))
+end
+
+--EXP5: compute attribute similarities
+local annotations_nr = matrix:size(1)
+local matrix_t = matrix:t()
+local matrix3 = torch.DoubleTensor(active, annotations_nr)
+
+--keep only active attributes to avoid ugly nan
+j=1
+for i=1,opt.vocab_size do
+    if union[i]>=1 then
+        matrix3[j] = matrix_t[i]:clone()
+        j = j+1
+    end
+end
+local r_norm_m = matrix3:norm(2,2)
+matrix3:cdiv(r_norm_m:expandAs(matrix3))
+--compute cosine between attributes
+sims = -matrix3 * matrix3:t()
+gnuplot.epsfigure('attribute_sims.eps')
+gnuplot.imagesc(sims,'color')
+gnuplot.plotflush()
+
 
 print(string.format("Number of active attributes: %d",active))
 
