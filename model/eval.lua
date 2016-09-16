@@ -7,6 +7,8 @@ require 'misc.DataLoader'
 require 'misc.optim_updates'
 require 'models.Players'
 require 'gnuplot'
+require 'csvigo'
+require 'klib.lua'
 
 -------------------------------------------------------------------------------
 -- Input arguments and options
@@ -107,6 +109,12 @@ protos.players = protos.model
 
 collectgarbage() 
 
+-------------------------------------------------------------------------------
+-- Define name of file
+------------------------------------------------------------------------------
+
+opt.id = 'eval_g@'..opt.game_session..'_h@'..checkpoint.opt.hidden_size..'_d@'..checkpoint.opt.dropout..'_f@'..opt.feat_size..'_a@'..opt.vocab_size
+print(string.format("Saving this at %s", opt.id))
 -------------------------------------------------------------------------------
 -- Validation evaluation
 -------------------------------------------------------------------------------
@@ -218,7 +226,11 @@ print(acc)
 
 do_exp1 = 0
 do_exp2 = 0
-
+do_exp3 = 0
+do_exp4 = 0
+do_exp5 = 1
+do_exp6 = 1
+do_exp7 = 1
 -- EXP1: align latent to gold (only SHAPES)
 -- see if you can align -- for each latent keep the maximum fitting 
 -- (in terms of images) gold attribute. Make sure that 
@@ -241,7 +253,7 @@ if opt.vocab_size == loader:getRealVocabSize() and opt.game_session=='v3' and do
 		old_matrix[{{1,opt.vocab_size},idx[1]}] = 0
 	end
 	labels = labels..')'
-	gnuplot.epsfigure(opt.game_session..'_attribute_usage.eps')
+	gnuplot.epsfigure(opt.id..'_attribute_usage.eps')
 	if opt.game_session == 'v3' then
 		gnuplot.raw(labels)
 	end
@@ -275,23 +287,24 @@ if opt.game_session == 'v2' and do_exp2 ==1 then
 	new_matrix  = torch.DoubleTensor(matrix:size(1), matrix:size(2))
 
 	--normalize for cosine
-	local r_norm_m = matrix:norm(2,2)
-	matrix:cdiv(r_norm_m:expandAs(matrix))
+        local matrix0 = matrix:clone()
+	local r_norm_m = matrix0:norm(2,2)
+	matrix0:cdiv(r_norm_m:expandAs(matrix0))
 
 	--re-order
 	for c=1,matrix:size(1) do
-		new_matrix[c] = matrix[mapping[c]]
+		new_matrix[c] = matrix0[mapping[c]]
 	end
 
-	local cosine = matrix * matrix:transpose(1,2)
+	local cosine = matrix0 * matrix0:transpose(1,2)
 	
-	gnuplot.epsfigure('shuffles.eps')
+	gnuplot.epsfigure(opt.id..'_shuffles.eps')
 	gnuplot.imagesc(cosine,'color')
 	gnuplot.plotflush()
 
-	matrix = new_matrix
-	cosine = matrix * matrix:transpose(1,2)
-	gnuplot.epsfigure('correct.eps')
+	matrix0 = new_matrix
+	cosine = matrix0 * matrix0:transpose(1,2)
+	gnuplot.epsfigure(opt.id..'_correct.eps')
         gnuplot.imagesc(cosine,'color')
         gnuplot.plotflush()
 
@@ -320,21 +333,25 @@ for a=1,opt.vocab_size do
 	end
 end
 
---EXP4: compute nearest neighbor of  each annotation in attribute space 
 
+--EXP4: compute nearest neighbor of  each annotation in attribute space 
+if do_exp4 == 1 then
 --normalize for cosine
 local r_norm_m = matrix:norm(2,2)
 local matrix2 = matrix:clone()
 matrix2:cdiv(r_norm_m:expandAs(matrix2))
 --compute cosine between annotations
-sims = -matrix2 * matrix2:t()  
+local sims = -matrix2 * matrix2:t()  
 
 sorted, indices = torch.sort(sims, 2)
 for f=1,matrix:size(1) do
     print(string.format("[%d] %s --> %s (%f)",f, vocab[tostring(f)],vocab[tostring(indices[f][2])], sorted[f][2]))
 end
+end
+
 
 --EXP5: compute attribute similarities
+if do_exp5 == 1 then
 local annotations_nr = matrix:size(1)
 local matrix_t = matrix:t()
 local matrix3 = torch.DoubleTensor(active, annotations_nr)
@@ -350,11 +367,127 @@ end
 local r_norm_m = matrix3:norm(2,2)
 matrix3:cdiv(r_norm_m:expandAs(matrix3))
 --compute cosine between attributes
-sims = -matrix3 * matrix3:t()
-gnuplot.epsfigure('attribute_sims.eps')
+local sims = matrix3 * matrix3:t()
+gnuplot.epsfigure(opt.id..'_attribute_sims.eps')
 gnuplot.imagesc(sims,'color')
 gnuplot.plotflush()
+end
 
 
+--EXP6: annotations vs attributes
+if do_exp6 == 1 then
+gnuplot.epsfigure(opt.id..'_annotations_attributes.eps')
+gnuplot.imagesc(matrix,'color')
+gnuplot.plotflush()
+end
+
+--EXP7: do correlations of annotations and cbow vectors
+if do_exp7 == 1 then
+    matrix = matrix:double()
+    --read cbow vectors
+    local embeddings = {}
+    local mapping = {}
+    local common
+
+    local idx = 1
+   
+    local suffix = ''
+    if opt.game_session == 'v1' then
+        suffix = '_subset_top100000'
+    else
+        suffix = '_subset_v2'
+    end
+    b = csvigo.load({path="word2vec/cbow"..suffix..".txt", mode="large"})
+    rows = csvigo.load({path="word2vec/rows"..suffix..".txt", mode="large"})
+    for i=1,#b do
+        line = b[i][1]:split("[ \t]+")
+        for f=1,matrix:size(1) do
+            if vocab[tostring(f)] == rows[i][1] then
+                embeddings[idx] = torch.DoubleTensor({unpack(line, 1, #line)})
+                mapping[idx] = f
+                idx = idx + 1
+                --print(string.format("Found %s",vocab[tostring(f)]))
+                break
+            end
+        end
+    end
+   
+    print(#embeddings) 
+    -- subset to keep common embeddings 
+    local new_annotations = torch.DoubleTensor(#mapping, matrix:size(2))
+    local new_embeddings = torch.DoubleTensor(#embeddings, embeddings[1]:size(1))
+
+    for f=1,#embeddings do
+        new_embeddings[f] = embeddings[f]:clone()
+        new_annotations[f] = matrix[mapping[f]]:clone()
+    end
+
+    -- unit norm
+    -- new_embeddings = torch.rand(new_embeddings:size(1), new_embeddings:size(2))
+    local r_norm_m = new_embeddings:norm(2,2)
+    new_embeddings:cdiv(r_norm_m:expandAs(new_embeddings))
+    sims1 = new_embeddings * new_embeddings:t()
+ 
+    --new_annotations =  torch.rand(new_annotations:size(1), new_annotations:size(2))
+    local r_norm_m = new_annotations:norm(2,2)
+    new_annotations:cdiv(r_norm_m:expandAs(new_annotations))
+    sims2 = new_annotations * new_annotations:t()
+
+  
+    print(new_embeddings:size())
+    print(new_annotations:size())
+    -- compute pdist :-)
+    local to_correlate = {}
+    local cur = 1
+    for i=1,#embeddings do
+        for j=i+1,#embeddings do
+            if sims1[i][j]==sims1[i][j] and sims2[i][j]==sims2[i][j] and sims1[i][j]~=0 and sims2[i][j]~=0 then
+                to_correlate[cur] = {}
+                to_correlate[cur][1] = sims1[i][j]
+                to_correlate[cur][2] = sims2[i][j]
+                cur = cur + 1
+            end
+        end
+    end
+   
+  
+
+    print(string.format("(Spearman) correlation between induced attributes and real linguistic ones %f (%d items)",math.spearman(to_correlate),#to_correlate))
+    print(string.format("(Pearson) correlation between induced attributes and real linguistic ones %f (%d items)",math.pearson(to_correlate),#to_correlate))
+
+    -- NULL hypothesis
+    local max_iterations = 100
+    local spearman = 0
+    local pearson = 0
+    for i=1,max_iterations do
+        print(string.format("%d ",i))
+        new_embeddings = torch.rand(new_embeddings:size(1), new_embeddings:size(2))
+        -- normalize to unit norm
+        local r_norm_m = new_embeddings:norm(2,2)
+        new_embeddings:cdiv(r_norm_m:expandAs(new_embeddings))
+
+        sims1 = new_embeddings * new_embeddings:t()
+        
+        -- compute pdist :-)
+        local to_correlate = {}
+        local cur = 1
+        for i=1,#embeddings do
+            for j=i+1,#embeddings do
+                if sims1[i][j]==sims1[i][j] and sims2[i][j]==sims2[i][j] and sims1[i][j]~=0 and sims2[i][j]~=0 then
+                    to_correlate[cur] = {}
+                    to_correlate[cur][1] = sims1[i][j]
+                    to_correlate[cur][2] = sims2[i][j]
+                    cur = cur + 1
+               end
+            end
+        end
+    
+        spearman = spearman + math.spearman(to_correlate)
+        pearson = pearson + math.pearson(to_correlate) 
+
+    end
+    print(string.format("NULL: (Spearman) correlation between induced attributes and real linguistic ones %f (%d items)", spearman/max_iterations, #to_correlate))
+    print(string.format("NULL: (Pearson) correlation between induced attributes and real linguistic ones %f (%d items)", pearson/max_iterations, #to_correlate))
+end
 print(string.format("Number of active attributes: %d",active))
 
