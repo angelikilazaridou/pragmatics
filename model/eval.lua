@@ -228,9 +228,11 @@ do_exp1 = 0
 do_exp2 = 0
 do_exp3 = 0
 do_exp4 = 0
-do_exp5 = 1
-do_exp6 = 1
+do_exp5 = 0
+do_exp6 = 0
 do_exp7 = 1
+do_exp8 = 1
+
 -- EXP1: align latent to gold (only SHAPES)
 -- see if you can align -- for each latent keep the maximum fitting 
 -- (in terms of images) gold attribute. Make sure that 
@@ -381,13 +383,12 @@ gnuplot.imagesc(matrix,'color')
 gnuplot.plotflush()
 end
 
---EXP7: do correlations of annotations and cbow vectors
-if do_exp7 == 1 then
+-- Read in word vectors
+local embeddings = {}
+local mapping = {}
+if do_exp7 == 1 or do_exp8 == 1 then
     matrix = matrix:double()
     --read cbow vectors
-    local embeddings = {}
-    local mapping = {}
-    local common
 
     local idx = 1
    
@@ -412,15 +413,22 @@ if do_exp7 == 1 then
         end
     end
    
-    print(#embeddings) 
-    -- subset to keep common embeddings 
-    local new_annotations = torch.DoubleTensor(#mapping, matrix:size(2))
-    local new_embeddings = torch.DoubleTensor(#embeddings, embeddings[1]:size(1))
+end
 
+ -- subset to keep common embeddings 
+local  new_annotations = torch.DoubleTensor(#mapping, matrix:size(2))
+local  new_embeddings = torch.DoubleTensor(#embeddings, embeddings[1]:size(1))
+local new_annotations_nonnorm
+
+--EXP7: do correlations of annotations and cbow vectors  
+if do_exp7 == 1 then 
+    print(#embeddings) 
     for f=1,#embeddings do
         new_embeddings[f] = embeddings[f]:clone()
         new_annotations[f] = matrix[mapping[f]]:clone()
     end
+
+    new_annotations_nonnorm = new_annotations:clone()
 
     -- unit norm
     -- new_embeddings = torch.rand(new_embeddings:size(1), new_embeddings:size(2))
@@ -456,11 +464,10 @@ if do_exp7 == 1 then
     print(string.format("(Pearson) correlation between induced attributes and real linguistic ones %f (%d items)",math.pearson(to_correlate),#to_correlate))
 
     -- NULL hypothesis
-    local max_iterations = 100
+    local max_iterations = 10
     local spearman = 0
     local pearson = 0
     for i=1,max_iterations do
-        print(string.format("%d ",i))
         new_embeddings = torch.rand(new_embeddings:size(1), new_embeddings:size(2))
         -- normalize to unit norm
         local r_norm_m = new_embeddings:norm(2,2)
@@ -489,5 +496,82 @@ if do_exp7 == 1 then
     print(string.format("NULL: (Spearman) correlation between induced attributes and real linguistic ones %f (%d items)", spearman/max_iterations, #to_correlate))
     print(string.format("NULL: (Pearson) correlation between induced attributes and real linguistic ones %f (%d items)", pearson/max_iterations, #to_correlate))
 end
+
+max_iterations = 100
+-- EXP8: compute semantics consistency
+if do_exp8 == 1 then
+
+
+    local consistencies = torch.DoubleTensor(new_annotations:size(2)):fill(0)
+    local active_annotations = torch.DoubleTensor(new_annotations:size(2)):fill(0)
+
+    -- for NULL
+    local p = torch.DoubleTensor(new_annotations:size(2)):fill(0)
+
+    -- annot x symbol
+    local m = matrix:t()
+   
+    -- annotations per attributes
+    local BOA = {}
+    local k = 0
+    -- for each attribute
+    for a=1,new_annotations:size(2) do 
+        -- create matrix of word vectors based on active annotations
+        local attrs_embeddings = {}
+        BOA[a] = {}
+        for ann=1,new_annotations:size(1) do 
+            -- if active, take word vectors
+            if new_annotations_nonnorm[ann][a] ~=0 then
+                attrs_embeddings[#attrs_embeddings+1] = new_embeddings[ann]:clone() 
+                active_annotations[a] = active_annotations[a] + 1
+                BOA[a][ann] = vocab[tostring(mapping[ann])]
+            end
+        end
+
+        if #attrs_embeddings >0 then
+            local tmp = torch.cat(attrs_embeddings,2)
+            tmp = tmp:t()
+            local s = tmp * tmp:t()
+            consistencies[a] = (s:triu():sum() - s:diag():sum()) / (((s:size(1) * s:size(1))-s:size(1))/2)
+            -- NULL hypothesis
+            for i=1,max_iterations do
+                -- random vectors
+                tmp = torch.rand(tmp:size())
+                local r_norm_m = tmp:norm(2,2)
+                tmp:cdiv(r_norm_m:expandAs(tmp))
+                -- generate pairwise similarities
+                s = tmp * tmp:t() 
+                local consistency_rdm = (s:triu():sum() - s:diag():sum()) / (((s:size(1) * s:size(1))-s:size(1))/2)
+                -- check if consistency > random
+                if consistency_rdm < consistencies[a] then
+                    p[a] = p[a] + 1
+                end
+            end
+        end
+        
+    end
+    
+    for a=1,consistencies:size(1) do
+        if active_annotations[a] > 0 then
+            print(string.format("Attr %d has consistency %f (p < %f)  --  annotations %d",a,consistencies[a],p[a]/max_iterations, active_annotations[a]))
+            k = k + active_annotations[a]
+            --print(BOA[a])
+        end
+    end
+
+    -- NULL hypothesis
+    local max_iterations = 100
+    local p = torch.DoubleTensor(new_annotations:size(2)):fill(0)
+
+    for i=1,max_iterations do
+
+        new_embeddings = torch.rand(new_embeddings:size(1), new_embeddings:size(2))
+        local r_norm_m = new_embeddings:norm(2,2)
+        new_embeddings:cdiv(r_norm_m:expandAs(new_embeddings))
+        
+        
+    end
+end
 print(string.format("Number of active attributes: %d",active))
+
 
