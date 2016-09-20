@@ -4,45 +4,51 @@ require 'nngraph'
 require 'dp'
 
 local player2 = {}
-function player2.model(game_size, feat_size, vocab_size, hidden_size, dropout, gpu)
+function player2.model(game_size, feat_size, vocab_size, property_size, embedding_size, hidden_size, dropout, gpu)
 
 
 	local shareList = {}
 	--read in inputs
 	local inputs = {}
-	local all_prop_vecs = {}
+	local all_vecs = {}
 	shareList[1] = {} --share mapping to property space
 
 	for i=1,game_size do
 		local image = nn.Identity()() --insert one image at a time
 		table.insert(inputs, image)
-
+		-- dropping out visual dimensions from visual vectors
 		local dropped = nn.Dropout(dropout)(image)		
 		--map images to some property space
-		local property_vec = nn.LinearNB(feat_size, vocab_size)(dropped)
+		local property_vec = nn.LinearNB(feat_size, property_size)(dropped)
 		table.insert(shareList[1],property_vec)
-
-		local p_t = property_vec
-		table.insert(all_prop_vecs,p_t)
+		-- collecting property vectors
+		table.insert(all_vecs,property_vec)
 
 	end
 
 
-	-- Then convert to 3d -> batch_size x 2 x vocab_size
-	local properties_3d = nn.View(2,-1):setNumInputDims(1)(nn.JoinTable(2)(all_prop_vecs))
+	-- Then convert a table of (game_size x batch_size x property_size) to a  2d matrix of  batch_size x (game_size x property_size)
+	-- essentially concatenating vectors within game
+	local all_vecs_matrix = nn.JoinTable(2)(all_vecs))
 
         -- the attribute of P1
-        local property = nn.Identity()()
-        table.insert(inputs, property)
-	-- convert to 3d
-	local property_3d = nn.View(1,-1):setNumInputDims(1)(property)
+        local attribute = nn.Identity()()
+        table.insert(inputs, attribute)
+
+	-- embed attribute
+	local embedded_attribute = nn.LinearNB(vocab_size, embbeding_size)(attribute)
+	-- putting altogether
+	local multimodal = nn.JoinTable(2)({all_vecs_matrix, embedded_attribute})
         
-	-- batch_size x 2
-	local selection = nn.MM(false,true)({properties_3d, property_3d})
-	local result = nn.View(-1,2)(selection)
+	-- compute interaction between images and attribute vectors 
+        local hid = nn.LinearNB(vocab_size*game_size + embedding_size, hidden_size)(multimodal)
+        hid =  nn.Sigmoid()(hid)
 	
+	-- scores of images in game
+	local scores = nn.LinearNB(hidden_size, game_size)
+	scores = nn.Sigmoid()(scores)
 	-- probabilities over input
-	local probs = nn.SoftMax()(result)
+	local probs = nn.SoftMax()(scores)
 	
     	local outputs = {}
 	table.insert(outputs, probs)

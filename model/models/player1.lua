@@ -4,49 +4,49 @@ require 'nngraph'
 require 'dp'
 
 local player1 = {}
-function player1.model(game_size, feat_size, vocab_size, hidden_size, dropout, gpu)
+function player1.model(game_size, feat_size, vocab_size, property_size, hidden_size, dropout, gpu)
 
 
 	local shareList = {}
 	--read in inputs
 	local inputs = {}
-	local all_prop_vecs = {}
+	local all_vecs = {}
 	shareList[1] = {} --share mapping to property space
 
 	for i=1,game_size do
-		local image = nn.Identity()() --insert one image at a time
-		table.insert(inputs, image)
+		-- insert one image at a time
+		local image = nn.Identity()()
+		table.insert(inputs, image)	
+		-- drop out dimensions from visual vectors
 		local dropped = nn.Dropout(dropout)(image)
 		--map images to some property space
-		local property_vec = nn.LinearNB(feat_size, vocab_size)(dropped):annotate{name='property'}
-		table.insert(shareList[1],property_vec)
-
-		local p_t = property_vec
+		local property_vec = nn.LinearNB(feat_size, property_size)(dropped):annotate{name='property'}
 		
-		table.insert(all_prop_vecs,p_t)
+		table.insert(all_vecs,property_vec)
 
+		-- sharing property mapping
+		table.insert(shareList[1],property_vec)
+		
 	end
 
 
-	-- Then convert to 3d -> batch_size x 2 x feat_size
-	local properties_3d = nn.View(2,-1):setNumInputDims(1)(nn.JoinTable(2)(all_prop_vecs))
-	-- convert to batch_size * feat_size x 2
-	local properties_3d_b = nn.View(-1,game_size)(nn.Transpose({2,3})(properties_3d))
+	-- Convert table of game_size x batch_size x property_size to 3d tensor of batch_size x (game_size x property_size) 
+	-- essentially concatenating images in the game.
+	local all_vecs_matrix = nn.JoinTable(2)(all_vecs))
 	
-	--hidden layer for discriminativeness
-	local hid = nn.LinearNB(game_size, hidden_size)(properties_3d_b)
+	-- hidden layer for discriminativeness
+	local hid = nn.LinearNB(property_size*game_size, hidden_size)(all_vecs_matrix)
 	hid =  nn.Sigmoid()(hid)
 	
-	--compute discriminativeness
-	local discr = nn.LinearNB(hidden_size,1)(hid)
 	
-	--reshaping to batch_size x feat_size
-	local result = nn.View(-1,vocab_size)(discr)
+	-- predicting attributes
+	local attributes = nn.LinearNB(hidden_size, vocab_size)(hid)
+	
 	-- probabilities over discriminative
-	local probs = nn.SoftMax()(result)
+	local probs_attributes = nn.SoftMax()(attributes)
 	--take out discriminative 
     	local outputs = {}
-	table.insert(outputs, probs)
+	table.insert(outputs, probs_attributes)
 	
 
 	local model = nn.gModule(inputs, outputs)

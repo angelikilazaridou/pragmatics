@@ -16,8 +16,8 @@ function players:__init(opt)
 	self.game_size = opt.game_size
 
 	--defining the two players
-	self.player1 = player1.model(opt.game_size, opt.feat_size, opt.vocab_size, opt.hidden_size, opt.dropout, opt.gpuid) 
-	self.player2 = player2.model(opt.game_size, opt.feat_size, opt.vocab_size, opt.hidden_size, opt.dropout, opt.gpuid)
+	self.player1 = player1.model(opt.game_size, opt.feat_size, opt.vocab_size, opt.property_size, opt.hidden_size, opt.dropout, opt.gpuid) 
+	self.player2 = player2.model(opt.game_size, opt.feat_size, opt.vocab_size, embedding_size, opt.hidden_size, opt.dropout, opt.gpuid)
 	
 	if opt.gpuid == 0 then
 		-- categorical for selection of feature

@@ -22,7 +22,8 @@ cmd:option('-input_h5','../DATA/game/v3/data.h5','path to the h5file containing 
 cmd:option('-input_json','../DATA/game/v3/data.json','path to the json file containing additional info and vocab')
 cmd:option('-input_h5_images','..DATA/game/v3/toy_images.h5','path to the h5 of the referit bounding boxes')
 cmd:option('-feat_size',-1,'The number of image features')
-cmd:option('-vocab_size',-1,'The number of properties')
+cmd:option('-vocab_size',-1,'The number of words in the vocabulary')
+cmd:option('-property_size', -1, 'The size of the property latent space')
 cmd:option('-game_size',2,'Number of images in the game')
 -- Select model
 cmd:option('-crit','reward_discr','What criterion to use')
@@ -65,7 +66,7 @@ cmd:text()
 -- Basic Torch initializations
 -------------------------------------------------------------------------------
 local opt = cmd:parse(arg)
-opt.id = '_g@'..opt.game_session..'_h@'..opt.hidden_size..'_d@'..opt.dropout..'_f@'..opt.feat_size..'_a@'..opt.vocab_size
+opt.id = '_g@'..opt.game_session..'_h@'..opt.hidden_size..'_d@'..opt.dropout..'_f@'..opt.feat_size..'_w@'..opt.vocab_size..'_a@'..opt.property_size
 
 
 torch.manualSeed(opt.seed)
@@ -242,14 +243,14 @@ local iter = 0
 local function lossFun()
 
 	protos.players:training()
-  grad_params:zero()
+	grad_params:zero()
 
-  ----------------------------------------------------------------------------
-  -- Forward pass
-  -----------------------------------------------------------------------------
+	----------------------------------------------------------------------------
+	-- Forward pass
+	-----------------------------------------------------------------------------
 
-  -- get batch of data  
-  local data = loader:getBatch{batch_size = opt.batch_size, split = 'train'}
+	-- get batch of data  
+	local data = loader:getBatch{batch_size = opt.batch_size, split = 'train'}
   
   
 	local inputs = {}
@@ -274,20 +275,20 @@ local function lossFun()
 	end
 
 	--forward in criterion to get loss
-  local loss = protos.criterion:forward(outputs, gold)
+	local loss = protos.criterion:forward(outputs, gold)
 
 	--print(torch.sum(gold,2))
 	-----------------------------------------------------------------------------
-  -- Backward pass
-  -----------------------------------------------------------------------------
-  -- backprop through criterion
-  local dpredicted = protos.criterion:backward(outputs, gold)
+	-- Backward pass
+	-----------------------------------------------------------------------------
+	-- backprop through criterion
+	local dpredicted = protos.criterion:backward(outputs, gold)
 
-  -- backprop through model
-  local dummy = protos.players:backward(inputs, {dpredicted})
+	-- backprop through model
+	local dummy = protos.players:backward(inputs, {dpredicted})
 
-  -- clip gradients
-  grad_params:clamp(-opt.grad_clip, opt.grad_clip)
+	-- clip gradients
+	grad_params:clamp(-opt.grad_clip, opt.grad_clip)
 
 
 	return loss
@@ -325,50 +326,48 @@ while true do
  	if (iter % opt.save_checkpoint_every == 0 or iter == opt.max_iters) then
 
 
-    	-- write a (thin) json report
-    	local checkpoint = {}
-    	checkpoint.opt = opt
-    	checkpoint.iter = iter
-    	checkpoint.loss_history = loss_history
-    	checkpoint.val_acc_history = val_acc_history
+    		-- write a (thin) json report
+    		local checkpoint = {}
+    		checkpoint.opt = opt
+    		checkpoint.iter = iter
+    		checkpoint.loss_history = loss_history
+    		checkpoint.val_acc_history = val_acc_history
 
-    	utils.write_json(checkpoint_path .. '.json', checkpoint)
-    	--print('wrote json checkpoint to ' .. checkpoint_path .. '.json')
+    		utils.write_json(checkpoint_path .. '.json', checkpoint)
+    		--print('wrote json checkpoint to ' .. checkpoint_path .. '.json')
 
-    	-- write the full model checkpoint as well if we did better than ever
-    	local current_score = loss
-    
-      		if iter > 0 then -- dont save on very first iteration
- 			  -- include the protos (which have weights) and save to file
- 			  local save_protos = {}
- 			  save_protos.model = protos.players -- these are shared clones, and point to correct param storage
- 			  checkpoint.protos = save_protos
- 			  -- also include the vocabulary mapping so that we can use the checkpoint 
- 			  -- alone to run on arbitrary images without the data loader
- 			  torch.save(checkpoint_path .. '.t7', checkpoint)
- 			  --print('wrote checkpoint to ' .. checkpoint_path .. '.t7')
+    		-- write the full model checkpoint as well if we did better than ever
+    		local current_score = loss
+    		if iter > 0 then -- dont save on very first iteration
+			-- include the protos (which have weights) and save to filE
+			local save_protos = {}
+			save_protos.model = protos.players -- these are shared clones, and point to correct param storage
+			checkpoint.protos = save_protos
+			-- also include the vocabulary mapping so that we can use the checkpoint 
+ 			-- alone to run on arbitrary images without the data loader
+			torch.save(checkpoint_path .. '.t7', checkpoint)
+			--print('wrote checkpoint to ' .. checkpoint_path .. '.t7')
 		end
-      end
-  -- decay the learning rate
-  local learning_rate = opt.learning_rate
-  if iter > opt.learning_rate_decay_start and opt.learning_rate_decay_start >= 0 then
-    local frac = (iter - opt.learning_rate_decay_start) / opt.learning_rate_decay_every
-    local decay_factor = math.pow(0.5, frac)
-    learning_rate = learning_rate * decay_factor -- set the decayed rate
-  end
-
-  --anneal temperature
-  opt.temperature = math.max(0.000001,opt.decay_temperature * opt.temperature)
-  opt.temperature2 = math.min(1,opt.anneal_temperature * opt.temperature2)
+	end
+	-- decay the learning rate
+	local learning_rate = opt.learning_rate
+	if iter > opt.learning_rate_decay_start and opt.learning_rate_decay_start >= 0 then
+		local frac = (iter - opt.learning_rate_decay_start) / opt.learning_rate_decay_every
+    		local decay_factor = math.pow(0.5, frac)
+		learning_rate = learning_rate * decay_factor -- set the decayed rate
+ 	 end
+	--anneal temperature
+  	opt.temperature = math.max(0.000001,opt.decay_temperature * opt.temperature)
+	opt.temperature2 = math.min(1,opt.anneal_temperature * opt.temperature2)
 
 	if iter % opt.print_every == 0 then
-    --print(string.format("%d, grad norm = %6.4e, param norm = %6.4e, grad/param norm = %6.4e, lr = %6.4e", iter, grad_params:norm(), params:norm(), grad_params:norm() / params:norm(), learning_rate))
-      print(string.format("%d @ %f @ %f",iter, loss, acc))
-  end
-  -- perform a parameter update
-  if opt.optim == 'rmsprop' then
-    rmsprop(params, grad_params, learning_rate, opt.optim_alpha, opt.optim_epsilon, optim_state)
-  elseif opt.optim == 'adagrad' then
+		--print(string.format("%d, grad norm = %6.4e, param norm = %6.4e, grad/param norm = %6.4e, lr = %6.4e", iter, grad_params:norm(), params:norm(), grad_params:norm() / params:norm(), learning_rate))
+ 		print(string.format("%d @ %f @ %f",iter, loss, acc))
+ 	 end
+	-- perform a parameter update
+	if opt.optim == 'rmsprop' then
+		rmsprop(params, grad_params, learning_rate, opt.optim_alpha, opt.optim_epsilon, optim_state)
+	elseif opt.optim == 'adagrad' then
  		adagrad(params, grad_params, learning_rate, opt.optim_epsilon, optim_state)
 	elseif opt.optim == 'sgd' then
  		sgd(params, grad_params, opt.learning_rate)
@@ -387,10 +386,10 @@ while true do
  	if iter % 10 == 0 then collectgarbage() end -- good idea to do this once in a while, i think
  	if loss0 == nil then loss0 = losses end
 
-  --if losses > loss0 * 20 then
-  --	print(string.format('loss seems to be exploding, quitting. %f vs %f', losses, loss0))
-  --  break
-  --end
+	--if losses > loss0 * 20 then
+	--print(string.format('loss seems to be exploding, quitting. %f vs %f', losses, loss0))
+  	--  break
+ 	--end
 
   if opt.max_iters+1 > 0 and iter >= opt.max_iters+1 then break end -- stopping criterion
 
