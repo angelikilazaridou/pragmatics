@@ -24,6 +24,7 @@ cmd:option('-input_h5_images','..DATA/game/v3/toy_images.h5','path to the h5 of 
 cmd:option('-feat_size',-1,'The number of image features')
 cmd:option('-vocab_size',-1,'The number of words in the vocabulary')
 cmd:option('-property_size', -1, 'The size of the property latent space')
+cmd:option('-embedding_size',-1,'The size of the embeddings that the receiver uses')
 cmd:option('-game_size',2,'Number of images in the game')
 -- Select model
 cmd:option('-crit','reward_discr','What criterion to use')
@@ -51,7 +52,7 @@ cmd:option('-rewardScale',1,'Scaling alpha of the reward')
 -- Evaluation/Checkpointing
 cmd:option('-val_images_use', 100, 'how many images to use when periodically evaluating the validation loss? (-1 = all)')
 cmd:option('-save_checkpoint_every', 3500, 'how often to save a model checkpoint?')
-cmd:option('-checkpoint_path', 'conll/', 'folder to save checkpoints into (empty = this folder)')
+cmd:option('-checkpoint_path', 'grounding/', 'folder to save checkpoints into (empty = this folder)')
 cmd:option('-losses_log_every', 1, 'How often do we snapshot losses, for inclusion in the progress dump? (0 = disable)')
 -- misc
 cmd:option('-id', '', 'an id identifying this run/job. used in cross-val and appended when writing progress files')
@@ -66,7 +67,7 @@ cmd:text()
 -- Basic Torch initializations
 -------------------------------------------------------------------------------
 local opt = cmd:parse(arg)
-opt.id = '_g@'..opt.game_session..'_h@'..opt.hidden_size..'_d@'..opt.dropout..'_f@'..opt.feat_size..'_w@'..opt.vocab_size..'_a@'..opt.property_size
+opt.id = '_g@'..opt.game_session..'_h@'..opt.hidden_size..'_d@'..opt.dropout..'_f@'..opt.feat_size..'_w@'..opt.vocab_size..'_a@'..opt.property_size..'_e@'..opt.embedding_size
 
 
 torch.manualSeed(opt.seed)
@@ -358,7 +359,7 @@ while true do
  	 end
 	--anneal temperature
   	opt.temperature = math.max(0.000001,opt.decay_temperature * opt.temperature)
-	opt.temperature2 = math.min(1,opt.anneal_temperature * opt.temperature2)
+	--opt.temperature2 = math.min(1,opt.anneal_temperature * opt.temperature2)
 
 	if iter % opt.print_every == 0 then
 		--print(string.format("%d, grad norm = %6.4e, param norm = %6.4e, grad/param norm = %6.4e, lr = %6.4e", iter, grad_params:norm(), params:norm(), grad_params:norm() / params:norm(), learning_rate))

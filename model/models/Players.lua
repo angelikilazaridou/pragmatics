@@ -14,10 +14,10 @@ function players:__init(opt)
 	self.batch_size = opt.batch_size
 	self.vocab_size = opt.vocab_size
 	self.game_size = opt.game_size
-
+	self.embedding_size = opt.embedding_size
 	--defining the two players
 	self.player1 = player1.model(opt.game_size, opt.feat_size, opt.vocab_size, opt.property_size, opt.hidden_size, opt.dropout, opt.gpuid) 
-	self.player2 = player2.model(opt.game_size, opt.feat_size, opt.vocab_size, embedding_size, opt.hidden_size, opt.dropout, opt.gpuid)
+	self.player2 = player2.model(opt.game_size, opt.feat_size, opt.vocab_size, opt.property_size, opt.embedding_size, opt.hidden_size, opt.dropout, opt.gpuid)
 	
 	if opt.gpuid == 0 then
 		-- categorical for selection of feature
@@ -43,23 +43,20 @@ function players:updateOutput(input)
 	local im2a = input[3]
 	local im2b = input[4]
 	local temp = input[5]
-	
+
 	--player 1 receives 2 images --
 	-- does a forward and gives back 1 action -> 1 feature
 	self.probs = self.player1:forward({im1a, im1b})
-	
+
 	--sample a feature
 	self.sampled_feat = self.feature_selection:forward({self.probs, temp})
-
 	--[[to_print = torch.random(1000)
 	if to_print%1000 == 0 then
 		print(self.sampled_feat)
 	end--]]
 
-
 	-- player 2 receives 2 refs and 1 feature and predicts L or R
 	self.prediction = self.player2:forward({im2a, im2b, self.sampled_feat})
-
 	-- sample image
 	self.sampled_image = self.image_selection:forward({self.prediction, temp})
 	-- baseline

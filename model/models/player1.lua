@@ -32,7 +32,7 @@ function player1.model(game_size, feat_size, vocab_size, property_size, hidden_s
 
 	-- Convert table of game_size x batch_size x property_size to 3d tensor of batch_size x (game_size x property_size) 
 	-- essentially concatenating images in the game.
-	local all_vecs_matrix = nn.JoinTable(2)(all_vecs))
+	local all_vecs_matrix = nn.JoinTable(2)(all_vecs)
 	
 	-- hidden layer for discriminativeness
 	local hid = nn.LinearNB(property_size*game_size, hidden_size)(all_vecs_matrix)

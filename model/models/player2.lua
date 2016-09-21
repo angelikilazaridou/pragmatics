@@ -29,23 +29,23 @@ function player2.model(game_size, feat_size, vocab_size, property_size, embeddin
 
 	-- Then convert a table of (game_size x batch_size x property_size) to a  2d matrix of  batch_size x (game_size x property_size)
 	-- essentially concatenating vectors within game
-	local all_vecs_matrix = nn.JoinTable(2)(all_vecs))
+	local all_vecs_matrix = nn.JoinTable(2)(all_vecs)
 
         -- the attribute of P1
         local attribute = nn.Identity()()
         table.insert(inputs, attribute)
 
 	-- embed attribute
-	local embedded_attribute = nn.LinearNB(vocab_size, embbeding_size)(attribute)
+	local embedded_attribute = nn.LinearNB(vocab_size, embedding_size)(attribute)
 	-- putting altogether
 	local multimodal = nn.JoinTable(2)({all_vecs_matrix, embedded_attribute})
         
 	-- compute interaction between images and attribute vectors 
-        local hid = nn.LinearNB(vocab_size*game_size + embedding_size, hidden_size)(multimodal)
+        local hid = nn.LinearNB(property_size*game_size + embedding_size, hidden_size)(multimodal)
         hid =  nn.Sigmoid()(hid)
 	
 	-- scores of images in game
-	local scores = nn.LinearNB(hidden_size, game_size)
+	local scores = nn.LinearNB(hidden_size, game_size)(hid)
 	scores = nn.Sigmoid()(scores)
 	-- probabilities over input
 	local probs = nn.SoftMax()(scores)
