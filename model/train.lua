@@ -12,7 +12,7 @@ require 'models.Players'
 -------------------------------------------------------------------------------
 cmd = torch.CmdLine()
 cmd:text()
-cmd:text('Model vs Model')
+cmd:text('Sender and Receiver with grounding')
 cmd:text()
 cmd:text('Options')
 
