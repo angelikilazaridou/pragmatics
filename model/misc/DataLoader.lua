@@ -10,11 +10,23 @@ function DataLoader:__init(opt)
 	self.info = utils.read_json(opt.json_file)
 	self.vocab = self.info.ix_to_word
 	self.gpu = opt.gpu
-  	self.vocab_size = self.info.vocab_size 
+  
 	self.real_vocab_size = self.info.vocab_size
 	self.game_size = opt.game_size
-	if opt.vocab_size >0 then
-		self.vocab_size = opt.vocab_size
+
+	-- load word embeddings and set vocab size
+	if opt.embeddings_file~="" then
+		self.embeddings = {}
+		emb, idx = self.load_embeddings(opt.embeddings_file)
+		self.embeddings["matrix"] = emb:clone()
+		self.embeddings["idx"] = idx
+		self.vocab_size = #idx
+	else
+		if opt.vocab_size >0 then
+			self.vocab_size = opt.vocab_size
+		else
+			self.vocab_size = self.info.vocab_size
+		end 	
 	end
   	print('vocab size is ' .. self.vocab_size)
   
@@ -59,8 +71,10 @@ function DataLoader:__init(opt)
   	end
   
 	for k,v in pairs(self.split_ix) do
-    	print(string.format('assigned %d images to split %s', #v, k))
+    		print(string.format('assigned %d images to split %s', #v, k))
   	end
+	
+	
 end
 
 function DataLoader:resetIterator(split)
@@ -82,6 +96,29 @@ end
 function DataLoader:getFeatSize()
         return self.feat_size
 end
+
+function DataLoader:load_embeddings(file)
+	
+	data = csvigo.load({path=file, mode="large"})
+	header = data[1][1]:split("[ \t]+")
+
+	rows = #data
+	dims = #header-1
+
+	idx = {}
+	vecs = DoubleTensor(rows,dims):fill(0)
+	
+	for i=1,rows do
+        	line = data[i][1]:split("[ \t]+")
+                vecs[i] = torch.DoubleTensor({unpack(line, 2, #line)})
+                idx[i] = line[1]
+        end
+
+	print(string.format("Loaded %d embeddings",rows))
+	
+	return vecs, idx
+end
+
 
 function DataLoader:getVocab()
 	return self.vocab
