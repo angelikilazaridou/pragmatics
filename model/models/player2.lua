@@ -36,7 +36,7 @@ function player2.model(game_size, feat_size, vocab_size, property_size, embeddin
         table.insert(inputs, attribute)
 
 	-- embed attribute
-	local embedded_attribute = nn.LinearNB(vocab_size, embedding_size)(attribute)
+	local embedded_attribute = nn.LinearNB(vocab_size, embedding_size)(attribute):annotate{name="embeddings_R"}
 	-- putting altogether
 	local multimodal = nn.JoinTable(2)({all_vecs_matrix, embedded_attribute})
         

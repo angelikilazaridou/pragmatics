@@ -4,7 +4,7 @@ require 'nngraph'
 require 'dp'
 
 local player1 = {}
-function player1.model(game_size, feat_size, vocab_size, property_size, hidden_size, dropout, gpu)
+function player1.model(game_size, feat_size, vocab_size, property_size, embedding_size, dropout, gpu)
 
 
 	local shareList = {}
@@ -35,12 +35,12 @@ function player1.model(game_size, feat_size, vocab_size, property_size, hidden_s
 	local all_vecs_matrix = nn.JoinTable(2)(all_vecs)
 	
 	-- hidden layer for discriminativeness
-	local hid = nn.LinearNB(property_size*game_size, hidden_size)(all_vecs_matrix)
+	local hid = nn.LinearNB(property_size*game_size, embedding_size)(all_vecs_matrix)
 	hid =  nn.Sigmoid()(hid)
 	
 	
 	-- predicting attributes
-	local attributes = nn.LinearNB(hidden_size, vocab_size)(hid)
+	local attributes = nn.LinearNB(embedding_size, vocab_size)(hid):annotate{name='embeddings_S'}
 	
 	-- probabilities over discriminative
 	local probs_attributes = nn.SoftMax()(attributes)

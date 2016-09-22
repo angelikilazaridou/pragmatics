@@ -8,20 +8,39 @@ function DataLoader:__init(opt)
 	-- load the json file which contains additional information about the dataset
 	print('DataLoader loading json file: ', opt.json_file)
 	self.info = utils.read_json(opt.json_file)
+	-- TODO: in case we load word embeddings, make sure to find correspondance with old vocabulary
 	self.vocab = self.info.ix_to_word
 	self.gpu = opt.gpu
   
 	self.real_vocab_size = self.info.vocab_size
 	self.game_size = opt.game_size
+	self.embeddings = {}
 
-	-- load word embeddings and set vocab size
-	if opt.embeddings_file~="" then
-		self.embeddings = {}
-		emb, idx = self.load_embeddings(opt.embeddings_file)
-		self.embeddings["matrix"] = emb:clone()
-		self.embeddings["idx"] = idx
+	-- load word embeddings and set vocab size of receiver
+	if opt.embeddings_file_R~="" then
+		self.embeddings["receiver"] = {}
+		emb, idx = self:load_embeddings(opt.embeddings_file_R, opt.embedding_size_R)
+		self.embeddings.receiver["matrix"] = emb:clone()
+		if self.gpu >=0 then
+			self.embeddings.receiver.matrix:cuda()
+		end
+		self.embeddings.receiver["idx"] = idx
 		self.vocab_size = #idx
-	else
+		self.vocab = idx
+	end
+	-- load word embeddings and set vocab size of sender
+        if opt.embeddings_file_S~="" then
+                self.embeddings["sender"] = {}
+                emb, idx = self:load_embeddings(opt.embeddings_file_S, opt.embedding_size_S)
+                self.embeddings.sender["matrix"] = emb:clone()
+                if self.gpu >=0 then
+                        self.embeddings.sender.matrix:cuda()
+                end
+                self.embeddings.sender["idx"] = idx
+                self.vocab_size = #idx
+		self.vocab = idx
+        end
+	if self.vocab==nil then
 		if opt.vocab_size >0 then
 			self.vocab_size = opt.vocab_size
 		else
@@ -97,20 +116,26 @@ function DataLoader:getFeatSize()
         return self.feat_size
 end
 
-function DataLoader:load_embeddings(file)
-	
-	data = csvigo.load({path=file, mode="large"})
-	header = data[1][1]:split("[ \t]+")
+function DataLoader:getEmbeddings(player)
+	return self.embeddings[player]
+end
 
-	rows = #data
-	dims = #header-1
+function DataLoader:load_embeddings(a,dims)
+ 
+	local d = csvigo.load({path=a, mode="large"})
+	local header = d[1][1]:split("[ \t]+")
+
+	rows = #d
+	if dims<0 then
+		dims = #header-1
+	end
 
 	idx = {}
-	vecs = DoubleTensor(rows,dims):fill(0)
+	vecs = torch.CudaTensor(rows,dims):fill(0)
 	
 	for i=1,rows do
-        	line = data[i][1]:split("[ \t]+")
-                vecs[i] = torch.DoubleTensor({unpack(line, 2, #line)})
+        	line = d[i][1]:split("[ \t]+")
+                vecs[i] = torch.CudaTensor({unpack(line, 2, dims+1)})
                 idx[i] = line[1]
         end
 

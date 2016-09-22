@@ -6,6 +6,7 @@ local utils = require 'misc.utils'
 require 'misc.DataLoader'
 require 'misc.optim_updates'
 require 'models.Players'
+require 'csvigo'
 
 -------------------------------------------------------------------------------
 -- Input arguments and options
@@ -23,14 +24,17 @@ cmd:option('-input_json','../DATA/game/v3/data.json','path to the json file cont
 cmd:option('-input_h5_images','..DATA/game/v3/toy_images.h5','path to the h5 of the referit bounding boxes')
 cmd:option('-feat_size',-1,'The number of image features')
 cmd:option('-vocab_size',-1,'The number of words in the vocabulary')
-cmd:option('-property_size', -1, 'The size of the property latent space')
-cmd:option('-embedding_size',-1,'The size of the embeddings that the receiver uses')
 cmd:option('-game_size',2,'Number of images in the game')
+cmd:option('-embeddings_file_S','','The txt file containing the word embeddings for Sender. If this option is used, the word embeddings are going to get initialized')
+cmd:option('-embeddings_file_R','','The txt file containing the word embeddings for Receiver. If this option is used, the word embeddings are going to get initialized')
 -- Select model
 cmd:option('-crit','reward_discr','What criterion to use')
 cmd:option('-hidden_size',20,'The hidden size of the discriminative layer')
 cmd:option('-scale_output',0,'Whether to add a sigmoid at the output of the model')
 cmd:option('-dropout',0,'Dropout in the visual input')
+cmd:option('-property_size', -1, 'The size of the property latent space')
+cmd:option('-embedding_size_R',-1,'The size of the embeddings that the Receiver uses. If set to -1, use the dimensionality of the loaded word vectors.')
+cmd:option('-embedding_size_S',-1,'The size of the embeddings that the Sender uses. If set to -1, use the dimensionality of the loaded word vectors.')
 -- Optimization: General
 cmd:option('-max_iters', 3500, 'max number of iterations to run for (-1 = run forever)')
 cmd:option('-batch_size',32,'what is the batch size of games')
@@ -67,7 +71,7 @@ cmd:text()
 -- Basic Torch initializations
 -------------------------------------------------------------------------------
 local opt = cmd:parse(arg)
-opt.id = '_g@'..opt.game_session..'_h@'..opt.hidden_size..'_d@'..opt.dropout..'_f@'..opt.feat_size..'_w@'..opt.vocab_size..'_a@'..opt.property_size..'_e@'..opt.embedding_size
+opt.id = '_g@'..opt.game_session..'_h@'..opt.hidden_size..'_d@'..opt.dropout..'_f@'..opt.feat_size..'_w@'..opt.vocab_size..'_a@'..opt.property_size..'_eS@'..opt.embedding_size_S..'_eR@'..opt.embedding_size_R
 
 
 torch.manualSeed(opt.seed)
@@ -105,7 +109,7 @@ end
 -------------------------------------------------------------------------------
 -- Create the Data Loader instance
 -------------------------------------------------------------------------------
-local loader = DataLoader{h5_file = opt.input_h5, json_file = opt.input_json,  feat_size = opt.feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size, h5_images_file = opt.input_h5_images, game_size = opt.game_size}
+local loader = DataLoader{h5_file = opt.input_h5, json_file = opt.input_json,  feat_size = opt.feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size, h5_images_file = opt.input_h5_images, game_size = opt.game_size, embeddings_file_S = opt.embeddings_file_S, embeddings_file_R = opt.embeddings_file_R, embedding_size_S = opt.embedding_size_S, embedding_size_R = opt.embedding_size_R}
 local game_size = loader:getGameSize()
 local feat_size = loader:getFeatSize()
 local vocab_size = loader:getVocabSize()
@@ -149,6 +153,31 @@ local params, grad_params = protos.players:getParameters()
 params:uniform(-0.08, 0.08) 
 print('total number of parameters in Game: ', params:nElement())
 assert(params:nElement() == grad_params:nElement())
+
+-- if there is embedding file for the sender, initialze embeddings
+if opt.embeddings_file_S~="" then
+	local nodes = protos.players.player1:listModules()[1]['forwardnodes']
+	for _,node in ipairs(nodes) do
+		if node.data.annotations.name=='embeddings_S' then
+			print(node.data.module.weight:size())
+			node.data.module.weight = loader:getEmbeddings("sender").matrix
+			print(node.data.module.weight:size())
+		end
+	end
+end
+
+--if there is embedding file for the receiver, initialize embeddings
+if opt.embeddings_file_R~="" then
+        local nodes = protos.players.player2:listModules()[1]['forwardnodes']
+        for _,node in ipairs(nodes) do
+                if node.data.annotations.name=='embeddings_R' then
+			print(node.data.module.weight:size())
+                        node.data.module.weight = loader:getEmbeddings("receiver").matrix:t()
+			print(node.data.module.weight:size())
+                end
+        end
+end
+
 
 collectgarbage() 
 
@@ -287,6 +316,26 @@ local function lossFun()
 
 	-- backprop through model
 	local dummy = protos.players:backward(inputs, {dpredicted})
+	
+	-- freeze during backprop for sender
+	if opt.embeddings_file_S~="" then
+        	local nodes = protos.players.player1:listModules()[1]['backwardnodes']
+        	for _,node in ipairs(nodes) do
+                	if node.data.annotations.name=='embeddings_S' then
+                       		node.data.module.gradWeight:fill(0)
+                	end
+        	end
+	end
+	-- freeze during backprop for receiver
+        if opt.embeddings_file_R~="" then
+                local nodes = protos.players.player2:listModules()[1]['backwardnodes']
+                for _,node in ipairs(nodes) do
+                        if node.data.annotations.name=='embeddings_R' then
+                                node.data.module.gradWeight:fill(0)
+                        end
+                end
+        end
+
 
 	-- clip gradients
 	grad_params:clamp(-opt.grad_clip, opt.grad_clip)
