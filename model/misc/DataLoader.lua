@@ -40,7 +40,7 @@ function DataLoader:__init(opt)
                 self.vocab_size = #idx
 		self.vocab = idx
         end
-	if self.vocab==nil then
+	if self.vocab_size==nil then
 		if opt.vocab_size >0 then
 			self.vocab_size = opt.vocab_size
 		else
@@ -125,17 +125,20 @@ function DataLoader:load_embeddings(a,dims)
 	local d = csvigo.load({path=a, mode="large"})
 	local header = d[1][1]:split("[ \t]+")
 
-	rows = #d
+	local rows = #d
 	if dims<0 then
 		dims = #header-1
 	end
 
-	idx = {}
-	vecs = torch.CudaTensor(rows,dims):fill(0)
+	local idx = {}
+	local vecs = torch.CudaTensor(rows,dims):fill(0)
 	
 	for i=1,rows do
-        	line = d[i][1]:split("[ \t]+")
+        	local line = d[i][1]:split("[ \t]+")
                 vecs[i] = torch.CudaTensor({unpack(line, 2, dims+1)})
+		-- normalize to unit norm ALWAYS!
+		local n = torch.norm(vecs[i])
+		vecs[i] = vecs[i]/n
                 idx[i] = line[1]
         end
 

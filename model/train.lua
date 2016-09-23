@@ -185,82 +185,80 @@ collectgarbage()
 -- Validation evaluation
 -------------------------------------------------------------------------------
 local function eval_split(split, evalopt)
-  local verbose = utils.getopt(evalopt, 'verbose', true)
-  local val_images_use = utils.getopt(evalopt, 'val_images_use', true)
+	local verbose = utils.getopt(evalopt, 'verbose', true)
+	local val_images_use = utils.getopt(evalopt, 'val_images_use', true)
 
-  protos.players:evaluate() 
-  loader:resetIterator(split) -- rewind iteator back to first datapoint in the split
+	protos.players:evaluate() 
+	loader:resetIterator(split) -- rewind iteator back to first datapoint in the split
   	
-  local n = 0
-  local loss_sum = 0
-  local loss_evals = 0
-  local acc = 0
+	local n = 0
+	local loss_sum = 0
+	local loss_evals = 0
+	local acc = 0
 	while true do
 
-  	-- get batch of data  
-    local data = loader:getBatch{batch_size = opt.batch_size, split = 'train'}
+		-- get batch of data  
+		local data = loader:getBatch{batch_size = opt.batch_size, split = 'train'}
 
 
-    local inputs = {}
-    --insert images
-    for i=1,#data.images do
-     	table.insert(inputs,data.images[i])
-    end
-    --insert the shuffled refs for P2 
-    for i=1,#data.refs do
-	table.insert(inputs, data.refs[i])
-    end
-    --insert temperature
-    table.insert(inputs,opt.temperature)
+		local inputs = {}
+		--insert images
+		for i=1,#data.images do
+			table.insert(inputs,data.images[i])
+		end
+		--insert the shuffled refs for P2 	
+		for i=1,#data.refs do
+			table.insert(inputs, data.refs[i])
+	    	end
+		--insert temperature	
+		table.insert(inputs,opt.temperature)
     
-    --forward model
-    local outputs = protos.players:forward(inputs)
+		--forward model
+		local outputs = protos.players:forward(inputs)
    
-    --[[
-    local nodes = protos.players.player1:listModules()[1]['forwardnodes']
-    for _,node in ipairs(nodes) do
-       if node.data.annotations.name=='property' then
-          extended_dot_vector = node.data.module.weight
-          print(extended_dot_vector)
-       end
-    end--]]
+		--[[	
+		local nodes = protos.players.player1:listModules()[1]['forwardnodes']
+		for _,node in ipairs(nodes) do
+			if node.data.annotations.name=='property' then
+				extended_dot_vector = node.data.module.weight
+				print(extended_dot_vector)
+			end
+		end
+		--]]
  
-    --prepage gold data
-    local gold
-    if opt.crit == 'reward_discr' then
-      --gold = data.single_discriminative
-      gold = data.referent_position
-    end
-    
-    --forward loss
-    local loss = protos.criterion:forward(outputs, gold)
+		--prepage gold data	
+		local gold	
+		if opt.crit == 'reward_discr' then
+			--gold = data.single_discriminative
+      			gold = data.referent_position
+	    	end
+    	
+		--forward loss
+		local loss = protos.criterion:forward(outputs, gold)
+		for k=1,opt.batch_size do
+			if outputs[1][k][gold[k][1]]==1 then
+				acc = acc+1
+			end
+		end
+		--print(torch.sum(gold,2))	
+		--print(loss)
 
-    for k=1,opt.batch_size do
-      if outputs[1][k][gold[k][1]]==1 then
-        acc = acc+1
-      end
-    end
-    --print(torch.sum(gold,2))
-    --print(loss)
-
- 
-    --average loss
-    loss_sum = loss_sum + loss
-    loss_evals = loss_evals + 1
-    
-    n = n+opt.batch_size
+	 	--average loss
+		loss_sum = loss_sum + loss
+		loss_evals = loss_evals + 1
+    		n = n+opt.batch_size
 	
-    -- if we wrapped around the split or used up val imgs budget then bail
-    local ix0 = data.bounds.it_pos_now
-    local ix1 = math.min(data.bounds.it_max, val_images_use)
-    if verbose then
-    	print(string.format('evaluating validation performance... %d/%d (%f)', ix0-1, ix1, loss))
-    end
+		-- if we wrapped around the split or used up val imgs budget then bail
+		local ix0 = data.bounds.it_pos_now
+		local ix1 = math.min(data.bounds.it_max, val_images_use)	
+		if verbose then
+			print(string.format('evaluating validation performance... %d/%d (%f)', ix0-1, ix1, loss))
+		end	
 
-    if loss_evals % 10 == 0 then collectgarbage() end
-    if data.bounds.wrapped then break end -- the split ran out of data, lets break out
-    if n >= val_images_use then break end -- we've used enough images
-  end
+		if loss_evals % 10 == 0 then collectgarbage() end	
+		if data.bounds.wrapped then break end -- the split ran out of data, lets break out
+		if n >= val_images_use then break end -- we've used enough images	
+	end
 
 	return loss_sum/loss_evals, acc/(loss_evals*opt.batch_size)
 
@@ -407,7 +405,11 @@ while true do
 		learning_rate = learning_rate * decay_factor -- set the decayed rate
  	 end
 	--anneal temperature
-  	opt.temperature = math.max(0.000001,opt.decay_temperature * opt.temperature)
+	if opt.temperature >0 then
+  		opt.temperature = math.max(0.000001,opt.decay_temperature * opt.temperature)
+	else
+		opt.temperature = 1
+	end
 	--opt.temperature2 = math.min(1,opt.anneal_temperature * opt.temperature2)
 
 	if iter % opt.print_every == 0 then
@@ -441,6 +443,6 @@ while true do
   	--  break
  	--end
 
-  if opt.max_iters+1 > 0 and iter >= opt.max_iters+1 then break end -- stopping criterion
+	if opt.max_iters+1 > 0 and iter >= opt.max_iters+1 then break end -- stopping criterion
 
 end
