@@ -368,6 +368,7 @@ local function groundingLoss()
 	-- clip gradients
         gr_grad_params:clamp(-opt.grad_clip, opt.grad_clip)
 
+	return loss
 end
 -------------------------------------------------------------------------------
 -- RL objective
@@ -448,7 +449,7 @@ end
 -------------------------------------------------------------------------------
 local loss0
 local optim_state = {}
-local cnn_optim_state = {}
+local gr_optim_state = {}
 local val_acc_history = {}
 local loss_history = {}
 local best_score=nil
@@ -459,7 +460,8 @@ local checkpoint_path = opt.checkpoint_path .. 'cp_id' .. opt.id ..'.cp'
 while true do  
 
 	local losses
-	if torch.uniform() < opt.grounding then
+	local coin = torch.uniform()
+	if coin < opt.grounding then
 		losses = groundingLoss()
 	else
 		losses = communicationLoss()
@@ -494,7 +496,7 @@ while true do
 			local save_protos = {}
 			save.protos = {}
 			save_protos.communication = protos.communication.players -- these are shared clones, and point to correct param storage
-			if opt.grounding == 1 then
+			if opt.grounding > 0 then
 				save_protos.grounding = protos.grounding.sender
 			end
 			checkpoint.protos = save_protos
@@ -523,23 +525,43 @@ while true do
 		--print(string.format("%d, grad norm = %6.4e, param norm = %6.4e, grad/param norm = %6.4e, lr = %6.4e", iter, grad_params:norm(), params:norm(), grad_params:norm() / params:norm(), learning_rate))
  		print(string.format("%d @ %f @ %f",iter, loss, acc))
  	 end
-	-- perform a parameter update
-	if opt.optim == 'rmsprop' then
-		rmsprop(params, grad_params, learning_rate, opt.optim_alpha, opt.optim_epsilon, optim_state)
-	elseif opt.optim == 'adagrad' then
- 		adagrad(params, grad_params, learning_rate, opt.optim_epsilon, optim_state)
-	elseif opt.optim == 'sgd' then
- 		sgd(params, grad_params, opt.learning_rate)
- 	elseif opt.optim == 'sgdm' then
- 		sgdm(params, grad_params, learning_rate, opt.optim_alpha, optim_state)
-	elseif opt.optim == 'sgdmom' then
- 		sgdmom(params, grad_params, learning_rate, opt.optim_alpha, optim_state)
- 	elseif opt.optim == 'adam' then
- 		adam(params, grad_params, learning_rate, opt.optim_alpha, opt.optim_beta, opt.optim_epsilon, optim_state)
- 	else
- 		error('bad option opt.optim')
- 	end
+	
 
+	-- perform a parameter update
+	if coin > opt.grounding then
+		if opt.optim == 'rmsprop' then
+			rmsprop(params, grad_params, learning_rate, opt.optim_alpha, opt.optim_epsilon, optim_state)
+		elseif opt.optim == 'adagrad' then
+ 			adagrad(params, grad_params, learning_rate, opt.optim_epsilon, optim_state)
+		elseif opt.optim == 'sgd' then
+ 			sgd(params, grad_params, opt.learning_rate)
+	 	elseif opt.optim == 'sgdm' then
+ 			sgdm(params, grad_params, learning_rate, opt.optim_alpha, optim_state)
+		elseif opt.optim == 'sgdmom' then
+ 			sgdmom(params, grad_params, learning_rate, opt.optim_alpha, optim_state)
+	 	elseif opt.optim == 'adam' then
+ 			adam(params, grad_params, learning_rate, opt.optim_alpha, opt.optim_beta, opt.optim_epsilon, optim_state)
+	 	else
+ 			error('bad option opt.optim')
+ 		end
+	else
+		if opt.optim == 'rmsprop' then
+                        rmsprop(gr_params, gr_grad_params, learning_rate, opt.optim_alpha, opt.optim_epsilon, gr_optim_state)
+                elseif opt.optim == 'adagrad' then
+                        adagrad(gr_params, gr_grad_params, learning_rate, opt.optim_epsilon, gr_optim_state)
+                elseif opt.optim == 'sgd' then
+                        sgd(gr_params, gr_grad_params, opt.learning_rate)
+                elseif opt.optim == 'sgdm' then
+                        sgdm(gr_params, gr_grad_params, learning_rate, opt.optim_alpha, gr_optim_state)
+                elseif opt.optim == 'sgdmom' then
+                        sgdmom(gr_params, gr_grad_params, learning_rate, opt.optim_alpha, gr_optim_state)
+                elseif opt.optim == 'adam' then
+                        adam(gr_params, gr_grad_params, learning_rate, opt.optim_alpha, opt.optim_beta, opt.optim_epsilon,gr_optim_state)
+                else
+                        error('bad option opt.optim')
+                end
+
+	end
  	-- stopping criterions
  	iter = iter + 1
  	if iter % 10 == 0 then collectgarbage() end -- good idea to do this once in a while, i think
