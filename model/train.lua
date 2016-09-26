@@ -3,10 +3,12 @@ require 'rnn'
 require 'dpnn'
 -- local imports
 local utils = require 'misc.utils'
-require 'misc.DataLoader'
+require 'misc.DataLoaderCommunication'
+require 'misc.DataLoaderGrounding'
 require 'misc.optim_updates'
-require 'models.Players'
+require 'players.Players'
 require 'csvigo'
+local sender = require 'players.Sender_gr'
 
 -------------------------------------------------------------------------------
 -- Input arguments and options
@@ -17,19 +19,27 @@ cmd:text('Sender and Receiver with grounding')
 cmd:text()
 cmd:text('Options')
 
--- Data input settings
-cmd:option('-game_session','','Which game to play (v1=REFERIT, v2=OBJECTS, v3=SHAPES). If left empty, json/h5/images.h5 should be given seperately')
-cmd:option('-input_h5','../DATA/game/v3/data.h5','path to the h5file containing the preprocessed dataset')
-cmd:option('-input_json','../DATA/game/v3/data.json','path to the json file containing additional info and vocab')
-cmd:option('-input_h5_images','..DATA/game/v3/toy_images.h5','path to the h5 of the referit bounding boxes')
-cmd:option('-feat_size',-1,'The number of image features')
+-- Data input settings: Communication
+cmd:option('-comm_game','','COMMUNICATION: Which game to play (v1=REFERIT, v2=OBJECTS, v3=SHAPES). If left empty, json/h5/images.h5 should be given seperately')
+cmd:option('-comm_input_h5','COMMUNICATION: ../DATA/game/v3/data.h5','path to the h5file containing the preprocessed dataset')
+cmd:option('-comm_input_json','COMMUNICATION: ../DATA/game/v3/data.json','path to the json file containing additional info and vocab')
+cmd:option('-comm_input_h5_images','COMMUNICATION: ..DATA/game/v3/toy_images.h5','path to the h5 of the referit bounding boxes')
+cmd:option('-comm_feat_size',-1,'COMMUNICATION: The number of image features')
+cmd:option('-comm_game_size',2,'COMMUNICATION: Number of images in the game')
+-- Data input settings: Grounding
+cmd:option('-gr_task','','GROUNDING: Which game to play (v1=REFERIT, v2=OBJECTS, v3=SHAPES). If left empty, json/h5/images.h5 should be given seperately')
+cmd:option('-gr_task_size',1,'GROUNDING: Number of inputs given to the player')
+cmd:option('-gr_input_h5','GROUNDING: ../DATA/game/v3/data.h5','path to the h5file containing the preprocessed dataset')
+cmd:option('-gr_input_json','GROUNDING: ../DATA/game/v3/data.json','path to the json file containing additional info and vocab')
+cmd:option('-gr_input_h5_images','GROUNDING: ..DATA/game/v3/toy_images.h5','path to the h5 of the referit bounding boxes')
+cmd:option('-gr_feat_size',-1,'GROUNDING: The number of image features')
+-- Aditional info applicable for both setting
 cmd:option('-vocab_size',-1,'The number of words in the vocabulary')
-cmd:option('-game_size',2,'Number of images in the game')
 cmd:option('-embeddings_file_S','','The txt file containing the word embeddings for Sender. If this option is used, the word embeddings are going to get initialized')
 cmd:option('-embeddings_file_R','','The txt file containing the word embeddings for Receiver. If this option is used, the word embeddings are going to get initialized')
--- Select model
-cmd:option('-crit','reward_discr','What criterion to use')
-cmd:option('-hidden_size',20,'The hidden size of the discriminative layer')
+-- Model parameters
+cmd:option('-grounding',0, 'The probability of switching to a grounding task [0=just communication-1=just grounding].')
+cmd:option('-hidden_size',20,'The hidden size ')
 cmd:option('-scale_output',0,'Whether to add a sigmoid at the output of the model')
 cmd:option('-dropout',0,'Dropout in the visual input')
 cmd:option('-property_size', -1, 'The size of the property latent space')
@@ -71,7 +81,7 @@ cmd:text()
 -- Basic Torch initializations
 -------------------------------------------------------------------------------
 local opt = cmd:parse(arg)
-opt.id = '_g@'..opt.game_session..'_h@'..opt.hidden_size..'_d@'..opt.dropout..'_f@'..opt.feat_size..'_w@'..opt.vocab_size..'_a@'..opt.property_size..'_eS@'..opt.embedding_size_S..'_eR@'..opt.embedding_size_R
+opt.id = '_g@'..opt.comm_game..'_h@'..opt.hidden_size..'_d@'..opt.dropout..'_f@'..opt.comm_feat_size..'_w@'..opt.vocab_size..'_a@'..opt.property_size..'_eS@'..opt.embedding_size_S..'_eR@'..opt.embedding_size_R
 
 
 torch.manualSeed(opt.seed)
@@ -89,30 +99,57 @@ end
 -- Input data
 ------------------------------------------------------------------------------
 
-if opt.game_session == 'v1' then
-	opt.input_json = '../DATA/game/v1/data.json'
-	opt.input_h5 = '../DATA/game/v1/data.h5'
-	opt.input_h5_images = '..DATA/game/v1/vectors_transposed.h5'
-elseif opt.game_session == 'v2' then
-	opt.input_json = '../DATA/game/v2/data.json'
-        opt.input_h5 = '../DATA/game/v2/data.h5'
-        opt.input_h5_images = '..DATA/game/v2/vectors_transposed.h5'
-elseif opt.game_session == 'v3' then
-	opt.input_json = '../DATA/game/v3/data.json'
-        opt.input_h5 = '../DATA/game/v3/data.h5'
-        opt.input_h5_images = '..DATA/game/v3/toy_images.h5'
+if opt.comm_game == 'v1' then
+	opt.comm_input_json = '../DATA/game/v1/data.json'
+	opt.comm_input_h5 = '../DATA/game/v1/data.h5'
+	opt.comm_input_h5_images = '..DATA/game/v1/vectors_transposed.h5'
+elseif opt.comm_game == 'v2' then
+	opt.comm_input_json = '../DATA/game/v2/data.json'
+        opt.comm_input_h5 = '../DATA/game/v2/data.h5'
+        opt.comm_input_h5_images = '..DATA/game/v2/vectors_transposed.h5'
+elseif opt.comm_game == 'v3' then
+	opt.comm_input_json = '../DATA/game/v3/data.json'
+        opt.comm_input_h5 = '../DATA/game/v3/data.h5'
+        opt.comm_input_h5_images = '..DATA/game/v3/toy_images.h5'
 else
 	print('No specific game. Data will be given by user')
 end
 
 
+if opt.gr_task == 'v1' then
+        opt.gr_input_json = '../DATA/game/v1/data.json'
+        opt.gr_input_h5 = '../DATA/game/v1/data.h5'
+        opt.gr_input_h5_images = '..DATA/game/v1/vectors_transposed.h5'
+elseif opt.gr_task == 'v2' then
+        opt.gr_input_json = '../DATA/game/v2/data.json'
+        opt.gr_input_h5 = '../DATA/game/v2/data.h5'
+        opt.gr_input_h5_images = '..DATA/game/v2/vectors_transposed.h5'
+elseif opt.gr_task == 'v3' then
+        opt.gr_input_json = '../DATA/game/v3/data.json'
+        opt.gr_input_h5 = '../DATA/game/v3/data.h5'
+        opt.gr_input_h5_images = '..DATA/game/v3/toy_images.h5'
+else
+	print('No specific task. Data will be given by user')
+end
+
+
+
+
 -------------------------------------------------------------------------------
--- Create the Data Loader instance
+-- Create the Data Loader instance for the Communication
 -------------------------------------------------------------------------------
-local loader = DataLoader{h5_file = opt.input_h5, json_file = opt.input_json,  feat_size = opt.feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size, h5_images_file = opt.input_h5_images, game_size = opt.game_size, embeddings_file_S = opt.embeddings_file_S, embeddings_file_R = opt.embeddings_file_R, embedding_size_S = opt.embedding_size_S, embedding_size_R = opt.embedding_size_R}
-local game_size = loader:getGameSize()
-local feat_size = loader:getFeatSize()
-local vocab_size = loader:getVocabSize()
+local loaderCommunication = DataLoaderCommunication{h5_file = opt.comm_input_h5, json_file = opt.comm_input_json,  feat_size = opt.comm_feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size, h5_images_file = opt.comm_input_h5_images, game_size = opt.comm_game_size, embeddings_file_S = opt.embeddings_file_S, embeddings_file_R = opt.embeddings_file_R, embedding_size_S = opt.embedding_size_S, embedding_size_R = opt.embedding_size_R}
+local game_size = loaderCommunication:getGameSize()
+local feat_size = loaderCommunication:getFeatSize()
+local vocab_size = loaderCommunication:getVocabSize()
+
+------------------------------------------------------------------------------
+-- Create the Data Loader instance for the Grounding
+-------------------------------------------------------------------------------
+local loaderGrounding = DataLoaderGrounding{h5_file = opt.gr_input_h5, json_file = opt.gr_input_json,  feat_size = opt.gr_feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size, h5_images_file = opt.gr_input_h5_images, embeddings_file_S = opt.embeddings_file_S, embeddings_file_R = opt.embeddings_file_R, embedding_size_S = opt.embedding_size_S, embedding_size_R = opt.embedding_size_R}
+local game_size = loaderGrounding:getGameSize()
+local feat_size = loaderGrounding:getFeatSize()
+local vocab_size = loaderGrounding:getVocabSize()
 
 
 -------------------------------------------------------------------------------
@@ -132,52 +169,85 @@ print(opt)
 -------------------------------------------------------------------------------
 local protos = {}
 
-print(string.format('Parameters are game_size=%d feat_size=%d, vocab_size=%d\n', game_size, feat_size,vocab_size))
-protos.players = nn.Players(opt)
+--print(string.format('Parameters are game_size=%d feat_size=%d, vocab_size=%d\n', game_size, feat_size,vocab_size))
 
-if opt.crit == 'reward_discr' then
-  protos.criterion = nn.VRClassReward(protos.players,opt.rewardScale)
-else
-	print(string.format('Wrog criterion: %s\n',opt.crit))
-end
+-- create communication channel
+protos.communication = {}
+protos.communication.players = nn.Players(opt)
+protos.communication.criterion = nn.VRClassReward(protos.communication.players,opt.rewardScale)
 
+-- TODO: shipping model to gpu
 -- ship criterion to GPU, model is shipped dome inside model
 if opt.gpuid >= 0 then
-	--model is shipped to cpu within the model
-	protos.criterion:cuda()
+	protos.communication.criterion:cuda()
 end
 
-
--- flatten and prepare all model parameters to a single vector. 
-local params, grad_params = protos.players:getParameters()
-params:uniform(-0.08, 0.08) 
-print('total number of parameters in Game: ', params:nElement())
-assert(params:nElement() == grad_params:nElement())
 
 -- if there is embedding file for the sender, initialze embeddings
 if opt.embeddings_file_S~="" then
-	local nodes = protos.players.player1:listModules()[1]['forwardnodes']
+	local nodes = protos.communication.players.sender:listModules()[1]['forwardnodes']
 	for _,node in ipairs(nodes) do
 		if node.data.annotations.name=='embeddings_S' then
-			print(node.data.module.weight:size())
 			node.data.module.weight = loader:getEmbeddings("sender").matrix
-			print(node.data.module.weight:size())
 		end
 	end
 end
 
 --if there is embedding file for the receiver, initialize embeddings
 if opt.embeddings_file_R~="" then
-        local nodes = protos.players.player2:listModules()[1]['forwardnodes']
+        local nodes = protos.communication.players.receiver:listModules()[1]['forwardnodes']
         for _,node in ipairs(nodes) do
                 if node.data.annotations.name=='embeddings_R' then
-			print(node.data.module.weight:size())
                         node.data.module.weight = loader:getEmbeddings("receiver").matrix:t()
-			print(node.data.module.weight:size())
                 end
         end
 end
 
+-- create grounding channel
+local gr_params, gr_grad_params
+if opt.grounding >0 then
+	
+	protos.grounding = {}
+	protos.grounding.players = sender.model(opt.gr_task_size, opt.gr_feat_size, opt.vocab_size, opt.property_size, opt.embedding_size_S, opt.dropout, opt.gpuid)
+	protos.grounding.criterion = nn.CrossEntropyCriterion()
+	
+	--ship to gpu
+	if opt.gpuid >= 0 then
+        	protos.grounding.criterion:cuda()
+	end
+	
+	shareListSM = {}
+	-- get sender's softmax weights
+	local nodes = protos.communication.players.sender:listModules()[1]['forwardnodes']
+        for _,node in ipairs(nodes) do
+		if node.data.annotations.name=='embeddings_S' then
+			table.insert(shareListSM, node.data.module)
+		end
+        end 
+        -- get grounding player's softmax weights 
+	local nodes = protos.grounding.players:listModules()[1]['forwardnodes']
+        for _,node in ipairs(nodes) do
+		if node.data.annotations.name=='embeddings_S' then
+			table.insert(shareListSM, node.data.module)
+		end
+        end
+	-- share the weights
+	for i = 2,#shareListSM do
+        	local m2 = shareListSM[i]
+                m2:share(shareListSM[1],'weight','bias','gradWeight','gradBias')
+        end
+
+	-- flatten and prepare all model parameters to a single vector. 
+	gr_params, gr_grad_params = protos.grounding.players:getParameters()
+	gr_params:uniform(-0.08, 0.08)
+	assert(gr_params:nElement() == gr_grad_params:nElement())
+end
+
+-- flatten and prepare all model parameters to a single vector after weight sharing
+local params, grad_params = protos.communication.players:getParameters()
+params:uniform(-0.08, 0.08) 
+print('total number of parameters in Game: ', params:nElement())
+assert(params:nElement() == grad_params:nElement())
 
 collectgarbage() 
 
@@ -188,8 +258,8 @@ local function eval_split(split, evalopt)
 	local verbose = utils.getopt(evalopt, 'verbose', true)
 	local val_images_use = utils.getopt(evalopt, 'val_images_use', true)
 
-	protos.players:evaluate() 
-	loader:resetIterator(split) -- rewind iteator back to first datapoint in the split
+	protos.communication.players:evaluate() 
+	loaderCommunication:resetIterator(split) -- rewind iteator back to first datapoint in the split
   	
 	local n = 0
 	local loss_sum = 0
@@ -198,7 +268,7 @@ local function eval_split(split, evalopt)
 	while true do
 
 		-- get batch of data  
-		local data = loader:getBatch{batch_size = opt.batch_size, split = 'train'}
+		local data = loaderCommunication:getBatch{batch_size = opt.batch_size, split = 'train'}
 
 
 		local inputs = {}
@@ -214,10 +284,10 @@ local function eval_split(split, evalopt)
 		table.insert(inputs,opt.temperature)
     
 		--forward model
-		local outputs = protos.players:forward(inputs)
+		local outputs = protos.communication.players:forward(inputs)
    
 		--[[	
-		local nodes = protos.players.player1:listModules()[1]['forwardnodes']
+		local nodes = protos.communication.players.sender:listModules()[1]['forwardnodes']
 		for _,node in ipairs(nodes) do
 			if node.data.annotations.name=='property' then
 				extended_dot_vector = node.data.module.weight
@@ -227,14 +297,10 @@ local function eval_split(split, evalopt)
 		--]]
  
 		--prepage gold data	
-		local gold	
-		if opt.crit == 'reward_discr' then
-			--gold = data.single_discriminative
-      			gold = data.referent_position
-	    	end
+		local gold = data.referent_position
     	
 		--forward loss
-		local loss = protos.criterion:forward(outputs, gold)
+		local loss = protos.communication.criterion:forward(outputs, gold)
 		for k=1,opt.batch_size do
 			if outputs[1][k][gold[k][1]]==1 then
 				acc = acc+1
@@ -264,13 +330,45 @@ local function eval_split(split, evalopt)
 
 end
 
+--------------------------------------------------------------------------------
+-- Supervised objective
+--------------------------------------------------------------------------------
+local function groundingLoss()
+
+	protos.grounding.players:training()
+	gr_grad_params:zero()
+	----------------------------------------------------------------------------
+        -- Forward pass
+        ----------------------------------------------------------------------------
+	local d = loaderGrounding:getBatch{batch_size = opt.batch_size, split = 'train'}
+
+	-- forward model
+	local outputs = protos.grounding.players:forward(d.images)
+	
+	-- compute loss
+	local loss = protos.grounding.criterion:forward(outputs, d.labels)
+
+	----------------------------------------------------------------------------
+	-- Backward pass
+	----------------------------------------------------------------------------
+	-- backprop through criterion
+	local dpredicted = protos.grounding.criterion:backward(outputs, d.labels)
+
+        -- backprop through model
+        local dummy = protos.grounding.players:backward(d.images, dpredicted)
+
+	-- TODO: not sure if this is correct
+	-- clip gradients
+        gr_grad_params:clamp(-opt.grad_clip, opt.grad_clip)
+
+end
 -------------------------------------------------------------------------------
--- Loss function
+-- RL objective
 -------------------------------------------------------------------------------
 local iter = 0
-local function lossFun()
+local function communicationLoss()
 
-	protos.players:training()
+	protos.communication.players:training()
 	grad_params:zero()
 
 	----------------------------------------------------------------------------
@@ -278,7 +376,7 @@ local function lossFun()
 	-----------------------------------------------------------------------------
 
 	-- get batch of data  
-	local data = loader:getBatch{batch_size = opt.batch_size, split = 'train'}
+	local data = loaderCommunication:getBatch{batch_size = opt.batch_size, split = 'train'}
   
   
 	local inputs = {}
@@ -293,31 +391,27 @@ local function lossFun()
 	--insert temperature
 	table.insert(inputs,opt.temperature)
 	--forward model
-	local outputs = protos.players:forward(inputs)
+	local outputs = protos.communication.players:forward(inputs)
   	
 	--compile gold data
-	local gold
-	if opt.crit == 'reward_discr' then
-		--gold = data.single_discriminative
-		gold = data.referent_position
-	end
+	local gold = data.referent_position
 
 	--forward in criterion to get loss
-	local loss = protos.criterion:forward(outputs, gold)
+	local loss = protos.communication.criterion:forward(outputs, gold)
 
 	--print(torch.sum(gold,2))
 	-----------------------------------------------------------------------------
 	-- Backward pass
 	-----------------------------------------------------------------------------
 	-- backprop through criterion
-	local dpredicted = protos.criterion:backward(outputs, gold)
+	local dpredicted = protos.communication.criterion:backward(outputs, gold)
 
 	-- backprop through model
-	local dummy = protos.players:backward(inputs, {dpredicted})
+	local dummy = protos.communication.players:backward(inputs, {dpredicted})
 	
 	-- freeze during backprop for sender
 	if opt.embeddings_file_S~="" then
-        	local nodes = protos.players.player1:listModules()[1]['backwardnodes']
+        	local nodes = protos.communication.players.sender:listModules()[1]['backwardnodes']
         	for _,node in ipairs(nodes) do
                 	if node.data.annotations.name=='embeddings_S' then
                        		node.data.module.gradWeight:fill(0)
@@ -326,7 +420,7 @@ local function lossFun()
 	end
 	-- freeze during backprop for receiver
         if opt.embeddings_file_R~="" then
-                local nodes = protos.players.player2:listModules()[1]['backwardnodes']
+                local nodes = protos.communication.players.receiver:listModules()[1]['backwardnodes']
                 for _,node in ipairs(nodes) do
                         if node.data.annotations.name=='embeddings_R' then
                                 node.data.module.gradWeight:fill(0)
@@ -357,8 +451,16 @@ local checkpoint_path = opt.checkpoint_path .. 'cp_id' .. opt.id ..'.cp'
 
 while true do  
 
- 	-- eval loss/gradient
- 	local losses = lossFun()
+	local losses
+	if torch.uniform() < opt.grounding then
+		print(string.format('Before %f',torch.sum(grad_params)))
+		print(torch.sum(shareListSM[1].gradWeight))
+		losses = groundingLoss()
+		print(torch.sum(shareListSM[1].gradWeight))
+		print(string.format('After %f',torch.sum(grad_params)))
+	else
+		losses = communicationLoss()
+	end
 
 	local loss = 0
 	local acc = 0
@@ -372,8 +474,6 @@ while true do
 
  	-- save checkpoint once in a while (or on final iteration)
  	if (iter % opt.save_checkpoint_every == 0 or iter == opt.max_iters) then
-
-
     		-- write a (thin) json report
     		local checkpoint = {}
     		checkpoint.opt = opt
@@ -389,7 +489,11 @@ while true do
     		if iter > 0 then -- dont save on very first iteration
 			-- include the protos (which have weights) and save to filE
 			local save_protos = {}
-			save_protos.model = protos.players -- these are shared clones, and point to correct param storage
+			save.protos = {}
+			save_protos.communication = protos.communication.players -- these are shared clones, and point to correct param storage
+			if opt.grounding == 1 then
+				save_protos.grounding = protos.grounding.sender
+			end
 			checkpoint.protos = save_protos
 			-- also include the vocabulary mapping so that we can use the checkpoint 
  			-- alone to run on arbitrary images without the data loader

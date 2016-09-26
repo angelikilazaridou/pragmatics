@@ -3,8 +3,8 @@ require 'misc.Peek'
 require 'nngraph'
 require 'dp'
 
-local player1 = {}
-function player1.model(game_size, feat_size, vocab_size, property_size, embedding_size, dropout, gpu)
+local Sender = {}
+function Sender.model(game_size, feat_size, vocab_size, property_size, embedding_size, dropout, gpu)
 
 
 	local shareList = {}
@@ -64,4 +64,4 @@ function player1.model(game_size, feat_size, vocab_size, property_size, embeddin
 	return model
 end
 
-return player1
+return Sender
