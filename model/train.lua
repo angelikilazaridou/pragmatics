@@ -176,6 +176,13 @@ protos.communication = {}
 protos.communication.players = nn.Players(opt)
 protos.communication.criterion = nn.VRClassReward(protos.communication.players,opt.rewardScale)
 
+-- flatten and prepare all model parameters to a single vector after weight sharing
+local params, grad_params = protos.communication.players:getParameters()
+params:uniform(-0.08, 0.08) 
+print('total number of parameters in Game: ', params:nElement())
+assert(params:nElement() == grad_params:nElement())
+
+
 -- TODO: shipping model to gpu
 -- ship criterion to GPU, model is shipped dome inside model
 if opt.gpuid >= 0 then
@@ -211,6 +218,11 @@ if opt.grounding >0 then
 	protos.grounding.players = sender.model(opt.gr_task_size, opt.gr_feat_size, opt.vocab_size, opt.property_size, opt.embedding_size_S, opt.dropout, opt.gpuid)
 	protos.grounding.criterion = nn.CrossEntropyCriterion()
 	
+	-- flatten and prepare all model parameters to a single vector. 
+	gr_params, gr_grad_params = protos.grounding.players:getParameters()
+	gr_params:uniform(-0.08, 0.08)
+	assert(gr_params:nElement() == gr_grad_params:nElement())
+
 	--ship to gpu
 	if opt.gpuid >= 0 then
         	protos.grounding.criterion:cuda()
@@ -218,36 +230,31 @@ if opt.grounding >0 then
 	
 	shareListSM = {}
 	-- get sender's softmax weights
+	--[[
 	local nodes = protos.communication.players.sender:listModules()[1]['forwardnodes']
         for _,node in ipairs(nodes) do
 		if node.data.annotations.name=='embeddings_S' then
 			table.insert(shareListSM, node.data.module)
 		end
-        end 
-        -- get grounding player's softmax weights 
+        end --]]
+	table.insert(shareListSM, protos.communication.players.sender:listModules()[11])
+        --[[
+	-- get grounding player's softmax weights 
 	local nodes = protos.grounding.players:listModules()[1]['forwardnodes']
         for _,node in ipairs(nodes) do
 		if node.data.annotations.name=='embeddings_S' then
 			table.insert(shareListSM, node.data.module)
 		end
-        end
+        end]]--
+	table.insert(shareListSM, protos.grounding.players:listModules()[7])
 	-- share the weights
 	for i = 2,#shareListSM do
         	local m2 = shareListSM[i]
                 m2:share(shareListSM[1],'weight','bias','gradWeight','gradBias')
         end
 
-	-- flatten and prepare all model parameters to a single vector. 
-	gr_params, gr_grad_params = protos.grounding.players:getParameters()
-	gr_params:uniform(-0.08, 0.08)
-	assert(gr_params:nElement() == gr_grad_params:nElement())
 end
 
--- flatten and prepare all model parameters to a single vector after weight sharing
-local params, grad_params = protos.communication.players:getParameters()
-params:uniform(-0.08, 0.08) 
-print('total number of parameters in Game: ', params:nElement())
-assert(params:nElement() == grad_params:nElement())
 
 collectgarbage() 
 
@@ -453,11 +460,7 @@ while true do
 
 	local losses
 	if torch.uniform() < opt.grounding then
-		print(string.format('Before %f',torch.sum(grad_params)))
-		print(torch.sum(shareListSM[1].gradWeight))
 		losses = groundingLoss()
-		print(torch.sum(shareListSM[1].gradWeight))
-		print(string.format('After %f',torch.sum(grad_params)))
 	else
 		losses = communicationLoss()
 	end
