@@ -168,91 +168,62 @@ print(opt)
 -- Initialize the network
 -------------------------------------------------------------------------------
 local protos = {}
-
---print(string.format('Parameters are game_size=%d feat_size=%d, vocab_size=%d\n', game_size, feat_size,vocab_size))
+local params, grad_params, gr_params, gr_grad_params
 
 -- create communication channel
-protos.communication = {}
-protos.communication.players = nn.Players(opt)
-protos.communication.criterion = nn.VRClassReward(protos.communication.players,opt.rewardScale)
+if opt.grounding < 1 then 
 
--- flatten and prepare all model parameters to a single vector after weight sharing
-local params, grad_params = protos.communication.players:getParameters()
-params:uniform(-0.08, 0.08) 
-print('total number of parameters in Game: ', params:nElement())
-assert(params:nElement() == grad_params:nElement())
+	protos.communication = {}
+	protos.communication.players = nn.Players(opt)
+	protos.communication.criterion = nn.VRClassReward(protos.communication.players,opt.rewardScale)
 
+	-- flatten and prepare all model parameters to a single vector after weight sharing
+        params, grad_params = protos.communication.players:getParameters()
+        params:uniform(-0.08, 0.08)
+        assert(params:nElement() == grad_params:nElement())
 
--- TODO: shipping model to gpu
--- ship criterion to GPU, model is shipped dome inside model
-if opt.gpuid >= 0 then
-	protos.communication.criterion:cuda()
-end
+	if opt.gpuid >= 0 then
+		protos.communication.criterion:cuda()
+	end
 
-
--- if there is embedding file for the sender, initialze embeddings
-if opt.embeddings_file_S~="" then
-	local nodes = protos.communication.players.sender:listModules()[1]['forwardnodes']
-	for _,node in ipairs(nodes) do
-		if node.data.annotations.name=='embeddings_S' then
-			node.data.module.weight = loader:getEmbeddings("sender").matrix
+	-- if there is embedding file for the sender, initialze embeddings
+	if opt.embeddings_file_S~="" then
+		local nodes = protos.communication.players.sender:listModules()[1]['forwardnodes']
+		for _,node in ipairs(nodes) do
+			if node.data.annotations.name=='embeddings_S' then
+				node.data.module.weight = loader:getEmbeddings("sender").matrix
+			end
 		end
+	end
+
+	--if there is embedding file for the receiver, initialize embeddings
+	if opt.embeddings_file_R~="" then
+        	local nodes = protos.communication.players.receiver:listModules()[1]['forwardnodes']
+	        for _,node in ipairs(nodes) do
+	                if node.data.annotations.name=='embeddings_R' then	
+        	                node.data.module.weight = loader:getEmbeddings("receiver").matrix:t()
+                	end
+	        end
 	end
 end
 
---if there is embedding file for the receiver, initialize embeddings
-if opt.embeddings_file_R~="" then
-        local nodes = protos.communication.players.receiver:listModules()[1]['forwardnodes']
-        for _,node in ipairs(nodes) do
-                if node.data.annotations.name=='embeddings_R' then
-                        node.data.module.weight = loader:getEmbeddings("receiver").matrix:t()
-                end
-        end
-end
-
 -- create grounding channel
-local gr_params, gr_grad_params
 if opt.grounding >0 then
 	
 	protos.grounding = {}
 	protos.grounding.players = sender.model(opt.gr_task_size, opt.gr_feat_size, opt.vocab_size, opt.property_size, opt.embedding_size_S, opt.dropout, opt.gpuid)
 	protos.grounding.criterion = nn.CrossEntropyCriterion()
-	
-	-- flatten and prepare all model parameters to a single vector. 
-	gr_params, gr_grad_params = protos.grounding.players:getParameters()
-	gr_params:uniform(-0.08, 0.08)
-	assert(gr_params:nElement() == gr_grad_params:nElement())
 
+	-- flatten and prepare all model parameters to a single vector.
+        gr_params, gr_grad_params = protos.grounding.players:getParameters()
+        gr_params:uniform(-0.08, 0.08)
+        assert(gr_params:nElement() == gr_grad_params:nElement())
+	
 	--ship to gpu
 	if opt.gpuid >= 0 then
         	protos.grounding.criterion:cuda()
 	end
 	
-	shareListSM = {}
-	-- get sender's softmax weights
-	--[[
-	local nodes = protos.communication.players.sender:listModules()[1]['forwardnodes']
-        for _,node in ipairs(nodes) do
-		if node.data.annotations.name=='embeddings_S' then
-			table.insert(shareListSM, node.data.module)
-		end
-        end --]]
-	table.insert(shareListSM, protos.communication.players.sender:listModules()[11])
-        --[[
-	-- get grounding player's softmax weights 
-	local nodes = protos.grounding.players:listModules()[1]['forwardnodes']
-        for _,node in ipairs(nodes) do
-		if node.data.annotations.name=='embeddings_S' then
-			table.insert(shareListSM, node.data.module)
-		end
-        end]]--
-	table.insert(shareListSM, protos.grounding.players:listModules()[7])
-	-- share the weights
-	for i = 2,#shareListSM do
-        	local m2 = shareListSM[i]
-                m2:share(shareListSM[1],'weight','bias','gradWeight','gradBias')
-        end
-
 end
 
 
@@ -293,16 +264,6 @@ local function eval_split(split, evalopt)
 		--forward model
 		local outputs = protos.communication.players:forward(inputs)
    
-		--[[	
-		local nodes = protos.communication.players.sender:listModules()[1]['forwardnodes']
-		for _,node in ipairs(nodes) do
-			if node.data.annotations.name=='property' then
-				extended_dot_vector = node.data.module.weight
-				print(extended_dot_vector)
-			end
-		end
-		--]]
- 
 		--prepage gold data	
 		local gold = data.referent_position
     	
@@ -313,8 +274,6 @@ local function eval_split(split, evalopt)
 				acc = acc+1
 			end
 		end
-		--print(torch.sum(gold,2))	
-		--print(loss)
 
 	 	--average loss
 		loss_sum = loss_sum + loss
@@ -344,6 +303,7 @@ local function groundingLoss()
 
 	protos.grounding.players:training()
 	gr_grad_params:zero()
+
 	----------------------------------------------------------------------------
         -- Forward pass
         ----------------------------------------------------------------------------
@@ -366,8 +326,7 @@ local function groundingLoss()
 
 	-- TODO: not sure if this is correct
 	-- clip gradients
-        gr_grad_params:clamp(-opt.grad_clip, opt.grad_clip)
-
+	gr_grad_params:clamp(-opt.grad_clip, opt.grad_clip)
 	return loss
 end
 -------------------------------------------------------------------------------
@@ -447,7 +406,7 @@ end
 -------------------------------------------------------------------------------
 -- Main loop
 -------------------------------------------------------------------------------
-local loss0
+local gr_loss=0
 local optim_state = {}
 local gr_optim_state = {}
 local val_acc_history = {}
@@ -462,15 +421,21 @@ while true do
 	local losses
 	local coin = torch.uniform()
 	if coin < opt.grounding then
-		losses = groundingLoss()
+		if opt.grounding ~= 1 then
+			gr_params[{{gr_params:nElement()-(opt.embedding_size_S*opt.vocab_size),gr_params:nElement()}}] = params[{{params:nElement()-(opt.embedding_size_S*opt.vocab_size),params:nElement()}}]:clone()
+		end
+		gr_loss = groundingLoss()
 	else
+		if opt.grounding ~= 0 then
+			params[{{params:nElement()-(opt.embedding_size_S*opt.vocab_size),params:nElement()}}] = gr_params[{{gr_params:nElement()-(opt.embedding_size_S*opt.vocab_size),gr_params:nElement()}}]:clone()
+		end
 		losses = communicationLoss()
 	end
 
 	local loss = 0
 	local acc = 0
 
-	if iter % opt.print_every == 0 then
+	if iter % opt.print_every == 0  and opt.grounding~=1 then
 		--evaluate val performance 
 		loss,acc = eval_split('val', {val_images_use = opt.val_images_use, verbose=opt.verbose})
 		val_acc_history[iter] = acc
@@ -494,7 +459,6 @@ while true do
     		if iter > 0 then -- dont save on very first iteration
 			-- include the protos (which have weights) and save to filE
 			local save_protos = {}
-			save.protos = {}
 			save_protos.communication = protos.communication.players -- these are shared clones, and point to correct param storage
 			if opt.grounding > 0 then
 				save_protos.grounding = protos.grounding.sender
@@ -523,7 +487,7 @@ while true do
 
 	if iter % opt.print_every == 0 then
 		--print(string.format("%d, grad norm = %6.4e, param norm = %6.4e, grad/param norm = %6.4e, lr = %6.4e", iter, grad_params:norm(), params:norm(), grad_params:norm() / params:norm(), learning_rate))
- 		print(string.format("%d @ %f @ %f",iter, loss, acc))
+ 		print(string.format("%d @ %f @ %f",iter, acc, gr_loss))
  	 end
 	
 

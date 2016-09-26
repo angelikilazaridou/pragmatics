@@ -170,13 +170,7 @@ function DataLoader:getBatch(opt)
 
 
 		-- fetch bounding box id of images
-		local bb
-		-- hacky
-		if torch.random(1,2)==1 then
-			bb = self.info.refs[ix].bb1_i
-		else
-			bb = self.info.refs[ix].bb2_i
-		end
+		local bb = self.info.refs[ix].bb1_i
 		--fetch respective image 
 		local img = self.h5_images_file:read('/images'):partial({bb,bb}, {1,self.feat_size})
 		local img_norm = torch.norm(img)
@@ -184,7 +178,7 @@ function DataLoader:getBatch(opt)
 
 
 		--labels
-		label_batch[i] = self.h5_file:read('/single_label'):partial({bb,bb}) 
+		label_batch[i] = self.h5_file:read('/single_label'):partial({ix,ix}) 
 
 		-- meta
 		local info_struct = {}
