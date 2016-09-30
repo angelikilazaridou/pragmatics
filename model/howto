@@ -1,0 +1,4 @@
+th train.lua  -comm_game v2 -comm_feat_size 300 -vocab_size 100 -property_size 50 -comm_game_size 2 -hidden_size 20 -id test -gpuid -1 -temperature -1 -max_iters -1 -gr_task v2 -gr_feat_size 100 -embedding_size_S 100 -embedding_size_R 100 -grounding 1 -save_checkpoint_every 10000000000
+
+
+th train.lua  -comm_game v2 -comm_feat_size 300 -vocab_size 100 -property_size 50 -comm_game_size 2 -hidden_size 20 -id test -gpuid -1 -temperature -1 -max_iters -1  -embedding_size_S 100 -embedding_size_R 100 -grounding 0 -save_checkpoint_every 10000000000 -embeddings_file_R word2vec/cbow_with_labels_subset_v2.txt  -embeddings_file_S word2vec/cbow_with_labels_subset_v2.txt
