@@ -37,6 +37,7 @@ cmd:option('-gr_feat_size',-1,'GROUNDING: The number of image features')
 cmd:option('-vocab_size',-1,'The number of words in the vocabulary')
 cmd:option('-embeddings_file_S','','The txt file containing the word embeddings for Sender. If this option is used, the word embeddings are going to get initialized')
 cmd:option('-embeddings_file_R','','The txt file containing the word embeddings for Receiver. If this option is used, the word embeddings are going to get initialized')
+cmd:option('-fine_tune',0,'Option to fine-tune embeddings. 0=no, 1=sender only, 2=receiver only, 3=both')
 -- Model parameters
 cmd:option('-grounding',0, 'The probability of switching to a grounding task [0=just communication-1=just grounding].')
 cmd:option('-hidden_size',20,'The hidden size ')
@@ -132,24 +133,27 @@ else
 	print('No specific task. Data will be given by user')
 end
 
-
-
+local loaderCommunication, loaderGrounding, game_size, feat_size, vocab_size
 
 -------------------------------------------------------------------------------
--- Create the Data Loader instance for the Communication
+ -- Create the Data Loader instance for the Communication
 -------------------------------------------------------------------------------
-local loaderCommunication = DataLoaderCommunication{h5_file = opt.comm_input_h5, json_file = opt.comm_input_json,  feat_size = opt.comm_feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size, h5_images_file = opt.comm_input_h5_images, game_size = opt.comm_game_size, embeddings_file_S = opt.embeddings_file_S, embeddings_file_R = opt.embeddings_file_R, embedding_size_S = opt.embedding_size_S, embedding_size_R = opt.embedding_size_R}
-local game_size = loaderCommunication:getGameSize()
-local feat_size = loaderCommunication:getFeatSize()
-local vocab_size = loaderCommunication:getVocabSize()
+if opt.grounding ~= 1 then
+	loaderCommunication = DataLoaderCommunication{h5_file = opt.comm_input_h5, json_file = opt.comm_input_json,  feat_size = opt.comm_feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size, h5_images_file = opt.comm_input_h5_images, game_size = opt.comm_game_size, embeddings_file_S = opt.embeddings_file_S, embeddings_file_R = opt.embeddings_file_R, embedding_size_S = opt.embedding_size_S, embedding_size_R = opt.embedding_size_R}
+	game_size = loaderCommunication:getGameSize()
+	feat_size = loaderCommunication:getFeatSize()
+	vocab_size = loaderCommunication:getVocabSize()
+end
 
 ------------------------------------------------------------------------------
 -- Create the Data Loader instance for the Grounding
 -------------------------------------------------------------------------------
-local loaderGrounding = DataLoaderGrounding{h5_file = opt.gr_input_h5, json_file = opt.gr_input_json,  feat_size = opt.gr_feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size, h5_images_file = opt.gr_input_h5_images, embeddings_file_S = opt.embeddings_file_S, embeddings_file_R = opt.embeddings_file_R, embedding_size_S = opt.embedding_size_S, embedding_size_R = opt.embedding_size_R}
-local game_size = loaderGrounding:getGameSize()
-local feat_size = loaderGrounding:getFeatSize()
-local vocab_size = loaderGrounding:getVocabSize()
+if opt.grounding ~= 0 then
+	loaderGrounding = DataLoaderGrounding{h5_file = opt.gr_input_h5, json_file = opt.gr_input_json,  feat_size = opt.gr_feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size, h5_images_file = opt.gr_input_h5_images, embeddings_file_S = opt.embeddings_file_S, embeddings_file_R = opt.embeddings_file_R, embedding_size_S = opt.embedding_size_S, embedding_size_R = opt.embedding_size_R}
+	game_size = loaderGrounding:getGameSize()
+	feat_size = loaderGrounding:getFeatSize()
+	vocab_size = loaderGrounding:getVocabSize()
+end
 
 
 -------------------------------------------------------------------------------
@@ -177,6 +181,26 @@ if opt.grounding < 1 then
 	protos.communication.players = nn.Players(opt)
 	protos.communication.criterion = nn.VRClassReward(protos.communication.players,opt.rewardScale)
 
+	-- if there is embedding file for the sender, initialze embeddings
+	if opt.embeddings_file_S~="" then
+		local nodes = protos.communication.players.sender:listModules()[1]['forwardnodes']
+		for _,node in ipairs(nodes) do
+			if node.data.annotations.name=='embeddings_S' then
+				node.data.module.weight = loaderCommunication:getEmbeddings("sender").matrix:clone()
+			end
+		end
+	end
+
+	--if there is embedding file for the receiver, initialize embeddings
+	if opt.embeddings_file_R~="" then
+        	local nodes = protos.communication.players.receiver:listModules()[1]['forwardnodes']
+	        for _,node in ipairs(nodes) do
+	                if node.data.annotations.name=='embeddings_R' then
+        	                node.data.module.weight = loaderCommunication:getEmbeddings("receiver").matrix:t():clone()
+                	end
+	        end
+	end
+	
 	-- flatten and prepare all model parameters to a single vector after weight sharing
         params, grad_params = protos.communication.players:getParameters()
         params:uniform(-0.08, 0.08)
@@ -186,25 +210,7 @@ if opt.grounding < 1 then
 		protos.communication.criterion:cuda()
 	end
 
-	-- if there is embedding file for the sender, initialze embeddings
-	if opt.embeddings_file_S~="" then
-		local nodes = protos.communication.players.sender:listModules()[1]['forwardnodes']
-		for _,node in ipairs(nodes) do
-			if node.data.annotations.name=='embeddings_S' then
-				node.data.module.weight = loader:getEmbeddings("sender").matrix
-			end
-		end
-	end
 
-	--if there is embedding file for the receiver, initialize embeddings
-	if opt.embeddings_file_R~="" then
-        	local nodes = protos.communication.players.receiver:listModules()[1]['forwardnodes']
-	        for _,node in ipairs(nodes) do
-	                if node.data.annotations.name=='embeddings_R' then	
-        	                node.data.module.weight = loader:getEmbeddings("receiver").matrix:t()
-                	end
-	        end
-	end
 end
 
 -- create grounding channel
@@ -377,7 +383,7 @@ local function communicationLoss()
 	local dummy = protos.communication.players:backward(inputs, {dpredicted})
 	
 	-- freeze during backprop for sender
-	if opt.embeddings_file_S~="" then
+	if opt.embeddings_file_S~="" and (opt.fine_tune==0 or opt.fine_tune==2) then
         	local nodes = protos.communication.players.sender:listModules()[1]['backwardnodes']
         	for _,node in ipairs(nodes) do
                 	if node.data.annotations.name=='embeddings_S' then
@@ -386,11 +392,11 @@ local function communicationLoss()
         	end
 	end
 	-- freeze during backprop for receiver
-        if opt.embeddings_file_R~="" then
+        if opt.embeddings_file_R~="" and (opt.fine_tune==0 or opt.fine_tune==1) then
                 local nodes = protos.communication.players.receiver:listModules()[1]['backwardnodes']
                 for _,node in ipairs(nodes) do
                         if node.data.annotations.name=='embeddings_R' then
-                                node.data.module.gradWeight:fill(0)
+				node.data.module.gradWeight:fill(0)
                         end
                 end
         end

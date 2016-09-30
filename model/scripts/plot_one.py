@@ -37,7 +37,7 @@ print(len(all_accs))
 a,  = plt.plot(xnew, all_accs,  linewidth=2)
 plt.xlabel('# iterations', fontsize=20)
 plt.ylabel('communication success', fontsize=20)
-plt.savefig(dataset+'_ALL.eps')
+plt.savefig(dataset+'_ALL.pdf')
 plt.clf()
 
 

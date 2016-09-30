@@ -131,11 +131,11 @@ function DataLoader:load_embeddings(a,dims)
 	end
 
 	local idx = {}
-	local vecs = torch.CudaTensor(rows,dims):fill(0)
+	local vecs = torch.FloatTensor(rows,dims):fill(0)
 	
 	for i=1,rows do
         	local line = d[i][1]:split("[ \t]+")
-                vecs[i] = torch.CudaTensor({unpack(line, 2, dims+1)})
+                vecs[i] = torch.FloatTensor({unpack(line, 2, dims+1)})
 		-- normalize to unit norm ALWAYS!
 		local n = torch.norm(vecs[i])
 		vecs[i] = vecs[i]/n

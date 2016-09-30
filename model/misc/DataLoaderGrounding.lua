@@ -114,7 +114,7 @@ function DataLoader:load_embeddings(a,dims)
 	end
 
 	local idx = {}
-	local vecs = torch.CudaTensor(rows,dims):fill(0)
+	local vecs = torch.FloatTensor(rows,dims):fill(0)
 	
 	for i=1,rows do
         	local line = d[i][1]:split("[ \t]+")

@@ -46,7 +46,6 @@ function player2.model(game_size, feat_size, vocab_size, property_size, embeddin
 	
 	-- scores of images in game
 	local scores = nn.LinearNB(hidden_size, game_size)(hid)
-	scores = nn.Sigmoid()(scores)
 	-- probabilities over input
 	local probs = nn.SoftMax()(scores)
 	
