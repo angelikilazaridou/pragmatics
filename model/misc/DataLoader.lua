@@ -128,15 +128,27 @@ function DataLoader:getBatch(opt)
    		ix = split_ix[ri]
    		assert(ix ~= nil, 'bug: split ' .. split .. ' was accessed out of bounds with ' .. ri)
 
-
-			--image representations
+		coin = 1
+		if split == "train" then
+			coin = torch.random(2)
+		end
+		
+		--image representations
 		for ii=1,self.game_size do
 			-- fetch bounding box id of images
 			local bb
-			if ii==1 then
-				bb = self.info.refs[ix].bb1_i
+			if coin == 1 then
+				if ii==1 then
+					bb = self.info.refs[ix].bb1_i
+				else
+					bb = self.info.refs[ix].bb2_i
+				end
 			else
-				bb = self.info.refs[ix].bb2_i
+				if ii==2 then
+                                        bb = self.info.refs[ix].bb1_i
+                                else
+                                        bb = self.info.refs[ix].bb2_i
+                                end
 			end
 			--fetch respective image -- NOTE: transposed images 
 			-- for v2 transpose 1,2
