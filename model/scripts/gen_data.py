@@ -23,7 +23,7 @@ def build_vocab(data, params):
 			params['max_len'] = len(t)
 		t = RE2.split()
 		if len(t)>params['max_len']:
-            params['max_len'] = len(t)
+            		params['max_len'] = len(t)
 		for w in RE1.split()+RE2.split():
 			counts[w] = counts.get(w, 0) + 1
 
@@ -126,6 +126,7 @@ def format_data(data, images_index):
 def main(params):
 
 	data = json.load(open(params['input_json'], 'r'))
+	print len(data)
 	#read images
 	images_index = {}
 	i = 1
@@ -180,10 +181,10 @@ if __name__ == "__main__":
 	# input json
 	#distractors.json
 	parser.add_argument('--input_json', default='/home/angeliki/sas_adam/DATA_2/selected.json', help='input json file to process into hdf5')
-	parser.add_argument('--num_val', default=1000, type=int, help='number of images to assign to validation data (for CV etc)')
+	parser.add_argument('--num_val', default=10000, type=int, help='number of images to assign to validation data (for CV etc)')
 	parser.add_argument('--output_json', default='data.json', help='output json file')
 	parser.add_argument('--output_h5', default='data.h5', help='output h5 file')
-	parser.add_argument('--num_test', default=1000, type=int, help='number of test images (to withold until very very end)')
+	parser.add_argument('--num_test', default=10000, type=int, help='number of test images (to withold until very very end)')
 
 	args = parser.parse_args()
   
