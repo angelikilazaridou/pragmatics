@@ -11,7 +11,7 @@ from scipy.misc import imread, imresize
 
 
 def build_vocab(data_new, params):
-	
+
 	count = {}
 	for d in data_new:
 		if not d['RE1'] in count:
@@ -21,7 +21,7 @@ def build_vocab(data_new, params):
                         count[d['RE2']] = 0
                 count[d['RE2']] +=1
 	vocab = [w for w,n in count.iteritems()]
-	
+
 	print 'number of words in vocab would be %d' % (len(vocab), )
 
 	return vocab
@@ -33,15 +33,15 @@ def assign_splits(data, params):
 	for i,d in enumerate(data):
 		if i < num_val:
         		d['split'] = 'val'
-		elif i < num_val + num_test: 
+		elif i < num_val + num_test:
 			d['split'] = 'test'
-		else: 
+		else:
 			d['split'] = 'train'
 
 	print 'assigned %d to val, %d to test.' % (num_val, num_test)
 
 def encode_expressions(data, params, wtoi):
-	""" 
+	"""
 	encode all referrings into one large array, which will be 1-indexed.
 	"""
 
@@ -54,12 +54,12 @@ def encode_expressions(data, params, wtoi):
 	for i,d in enumerate(data):
 		### wtoi[w]-1 because 1-index vocab
 		Li = np.zeros((1,2, vocab_size), dtype='uint32')
-		
+
 		#add RE1
 		for k,w in enumerate(d['RE1'].split()):
 		   	Li[0,0,wtoi[w]-1] = 1
-		
-		 
+
+
 		#add RE2
 		for k,w in enumerate(d['RE2'].split()):
 			Li[0,1,wtoi[w]-1] = 1
@@ -73,7 +73,7 @@ def encode_expressions(data, params, wtoi):
 			l = wtoi[w]
 		label_arrays.append(Li2)
 		single_label_arrays.append(l)
-    	
+
 
   	L1 = np.concatenate(label_arrays, axis=0) # put all the labels together
   	L2 = np.concatenate(ref_arrays, axis=0) # put all expressions together
@@ -101,7 +101,7 @@ def format_data(vocab_size, balanced, objects):
 		objs2 = objects[c2]
 		all_pairs = list(product(objs1,objs2))
 		shuffle(all_pairs)
-		
+
 		if balanced>len(all_pairs):
 			continue
 		else:
@@ -154,13 +154,13 @@ def main(params):
 
 	# assign the splits
   	assign_splits(data_new, params)
-  
+
 	# encode captions in large arrays, ready to ship to hdf5 file
 	L1, L2, L3 =  encode_expressions(data_new, params, wtoi)
 
 	# create output h5 file
 	N = len(data_new)
- 
+
 	f = h5py.File(params['output_h5'], "w")
 	f.create_dataset("labels", dtype='uint32', data=L1)
   	f.create_dataset("refs",dtype='uint32',data=L2)
@@ -174,7 +174,7 @@ def main(params):
 	out['ix_to_word'] = itow # encode the (1-indexed) vocab
 	out['refs'] = data_new
 	out['vocab_size'] = len(itow)
-  
+
 	json.dump(out, open(params['output_json'], 'w'))
 	print 'wrote ', params['output_json']
 
@@ -191,7 +191,7 @@ if __name__ == "__main__":
 	parser.add_argument('--num_test', default=1000, type=int, help='number of test images (to withold until very very end)')
 
 	args = parser.parse_args()
-  
+
 	params = vars(args) # convert to ordinary dict
 	print 'parsed input parameters:'
   	print json.dumps(params, indent = 2)

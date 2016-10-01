@@ -65,7 +65,7 @@ cmd:option('-optim_epsilon',1e-8,'epsilon that goes into denominator for smoothi
 cmd:option('-weight_decay',0,'Weight decay for L2 norm')
 cmd:option('-rewardScale',1,'Scaling alpha of the reward')
 -- Evaluation/Checkpointing
-cmd:option('-val_images_use', 100, 'how many images to use when periodically evaluating the validation loss? (-1 = all)')
+cmd:option('-val_images_use', 1000, 'how many images to use when periodically evaluating the validation loss? (-1 = all)')
 cmd:option('-save_checkpoint_every', 3500, 'how often to save a model checkpoint?')
 cmd:option('-checkpoint_path', 'grounding/', 'folder to save checkpoints into (empty = this folder)')
 cmd:option('-losses_log_every', 1, 'How often do we snapshot losses, for inclusion in the progress dump? (0 = disable)')
@@ -74,7 +74,7 @@ cmd:option('-id', '', 'an id identifying this run/job. used in cross-val and app
 cmd:option('-seed', 123, 'random number generator seed to use')
 cmd:option('-gpuid', 0, 'which gpu to use. -1 = use CPU')
 cmd:option('-verbose',false,'How much info to give')
-cmd:option('-print_every',1,'Print some statistics')
+cmd:option('-print_every',100,'Print some statistics')
 cmd:text()
 
 
@@ -103,15 +103,15 @@ end
 if opt.comm_game == 'v1' then
 	opt.comm_input_json = '../DATA/game/v1/data.json'
 	opt.comm_input_h5 = '../DATA/game/v1/data.h5'
-	opt.comm_input_h5_images = '..DATA/game/v1/vectors_transposed.h5'
+	opt.comm_input_h5_images = '../DATA/game/v1/vectors_transposed.h5'
 elseif opt.comm_game == 'v2' then
 	opt.comm_input_json = '../DATA/game/v2/data.json'
         opt.comm_input_h5 = '../DATA/game/v2/data.h5'
-        opt.comm_input_h5_images = '..DATA/game/v2/vectors_transposed.h5'
+        opt.comm_input_h5_images = '../DATA/game/v2/vectors_transposed.h5'
 elseif opt.comm_game == 'v3' then
 	opt.comm_input_json = '../DATA/game/v3/data.json'
         opt.comm_input_h5 = '../DATA/game/v3/data.h5'
-        opt.comm_input_h5_images = '..DATA/game/v3/toy_images.h5'
+        opt.comm_input_h5_images = '../DATA/game/v3/toy_images.h5'
 else
 	print('No specific game. Data will be given by user')
 end
@@ -120,15 +120,15 @@ end
 if opt.gr_task == 'v1' then
         opt.gr_input_json = '../DATA/game/v1/data.json'
         opt.gr_input_h5 = '../DATA/game/v1/data.h5'
-        opt.gr_input_h5_images = '..DATA/game/v1/vectors_transposed.h5'
+        opt.gr_input_h5_images = '../DATA/game/v1/vectors_transposed.h5'
 elseif opt.gr_task == 'v2' then
         opt.gr_input_json = '../DATA/game/v2/data.json'
         opt.gr_input_h5 = '../DATA/game/v2/data.h5'
-        opt.gr_input_h5_images = '..DATA/game/v2/vectors_transposed.h5'
+        opt.gr_input_h5_images = '../DATA/game/v2/vectors_transposed.h5'
 elseif opt.gr_task == 'v3' then
         opt.gr_input_json = '../DATA/game/v3/data.json'
         opt.gr_input_h5 = '../DATA/game/v3/data.h5'
-        opt.gr_input_h5_images = '..DATA/game/v3/toy_images.h5'
+        opt.gr_input_h5_images = '../DATA/game/v3/toy_images.h5'
 else
 	print('No specific task. Data will be given by user')
 end
