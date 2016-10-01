@@ -144,9 +144,9 @@ end
 
 function players:parameters()
   	local p1,g1 = self.sender:parameters()
-        local p2,g2 = self.receiver:parameters()
+	local p2,g2 = self.receiver:parameters()
 	local p3,g3 = self.baseline:parameters()
-	
+
 	local params = {}
 	for k,v in pairs(p2) do table.insert(params, v) end
 	for k,v in pairs(p3) do table.insert(params, v) end
@@ -157,6 +157,7 @@ function players:parameters()
 	for k,v in pairs(g3) do table.insert(grad_params, v) end
 	for k,v in pairs(g1) do table.insert(grad_params, v) end
 
+	
 	return params, grad_params
 end
 

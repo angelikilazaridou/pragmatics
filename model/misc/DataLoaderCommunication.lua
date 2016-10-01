@@ -11,7 +11,8 @@ function DataLoader:__init(opt)
 	-- TODO: in case we load word embeddings, make sure to find correspondance with old vocabulary
 	self.vocab = self.info.ix_to_word
 	self.gpu = opt.gpu
-  
+
+	print(self.gpu)  
 	self.real_vocab_size = self.info.vocab_size
 	self.game_size = opt.game_size
 	self.embeddings = {}
@@ -22,7 +23,7 @@ function DataLoader:__init(opt)
 		emb, idx = self:load_embeddings(opt.embeddings_file_R, opt.embedding_size_R)
 		self.embeddings.receiver["matrix"] = emb:clone()
 		if self.gpu >=0 then
-			self.embeddings.receiver.matrix:cuda()
+			self.embeddings.receiver.matrix = self.embeddings.receiver.matrix:cuda()
 		end
 		self.embeddings.receiver["idx"] = idx
 		self.vocab_size = #idx
@@ -34,7 +35,7 @@ function DataLoader:__init(opt)
                 emb, idx = self:load_embeddings(opt.embeddings_file_S, opt.embedding_size_S)
                 self.embeddings.sender["matrix"] = emb:clone()
                 if self.gpu >=0 then
-                        self.embeddings.sender.matrix:cuda()
+                        self.embeddings.sender.matrix = self.embeddings.sender.matrix:cuda()
                 end
                 self.embeddings.sender["idx"] = idx
                 self.vocab_size = #idx
@@ -61,13 +62,9 @@ function DataLoader:__init(opt)
         print(self.images_size)
   	assert(#self.images_size == 2, '/images should be a 2D tensor')
 	local feat_size 
-	if self.images_size[1] == 4095 then
-  		self.num_images = self.images_size[2]
-		feat_size = self.images_size[1]
-	else
-		self.num_images = self.images_size[1]
-		feat_size = self.images_size[2]
-	end
+	self.num_images = self.images_size[1]
+	feat_size = self.images_size[2]
+	
 	if opt.feat_size == -1 then
 		self.feat_size = feat_size
 	else
@@ -186,55 +183,60 @@ function DataLoader:getBatch(opt)
   	local i=1
 	while i<=batch_size do
 
+		-- not really user for train
     		local ri = self.iterators[split] -- get next index from iterator
     		local ri_next = ri + 1 -- increment iterator
    		if ri_next > max_index then ri_next = 1; wrapped = true end -- wrap back around
    		self.iterators[split] = ri_next
    		ix = split_ix[ri]
    		assert(ix ~= nil, 'bug: split ' .. split .. ' was accessed out of bounds with ' .. ri)
-
-
-			--image representations
+		local coin  = 1
+		if split == "train" then
+		 	coin = torch.random(2)
+		end		
+		
+		local bb
+		--image representations
 		for ii=1,self.game_size do
-			-- fetch bounding box id of images
-			local bb
-			if ii==1 then
-				bb = self.info.refs[ix].bb1_i
+			
+			if split == "traintralala" then
+				if ii==1 then
+					bb = torch.random(self.num_images)
+				else
+					a = torch.random(self.num_images)
+					while a==bb do
+						a = torch.random(self.num_images)
+					end
+					bb = a
+				end
 			else
-				bb = self.info.refs[ix].bb2_i
+				if coin == 1 then
+					if ii==1 then
+						bb = self.info.refs[ix].bb1_i
+					else
+						bb = self.info.refs[ix].bb2_i
+					end
+				else
+					if ii==2 then
+                                                bb = self.info.refs[ix].bb1_i
+                                        else
+                                                bb = self.info.refs[ix].bb2_i
+                                        end
+
+				end
 			end
-			--fetch respective image -- NOTE: transposed images 
-			-- for v2 transpose 1,2
-			local img
-			--timer = torch.Timer()
-			if self.images_size[1] == 4096 then
-				img = self.h5_images_file:read('/images'):partial({1,self.feat_size},{bb,bb})
-			else
-				img = self.h5_images_file:read('/images'):partial({bb,bb}, {1,self.feat_size})
-			end
-			--timer:stop()
-			--print('Time elapsed in image read:' .. timer:time().real .. ' seconds')
+			
+			local img = self.h5_images_file:read('/images'):partial({bb,bb}, {1,self.feat_size})
 			--normalize to unit norm
 			local img_norm = torch.norm(img)
-			img = img/img_norm
-			--finally store image
-			--timer = torch.Timer()
-	    		img_batch[ii][i] = img
-			--timer:stop()
-			--print('Time elapsed in img_batch[ii][i] = img:' .. timer:time().real .. ' seconds')
-
-
+	    		img_batch[ii][i] = img/img_norm
 		end
 
-
 		---  create data for P2
-		--local referent_position = torch.random(self.game_size)  --- pick where to place the referent 
-		local referent_position = torch.random(2)
+		local referent_position = torch.random(self.game_size)
 	    	label_batch[{ {i,i} }] = referent_position
- 		--refs[1][i] = img_batch[1][i]
-		--refs[2][i] = img_batch[2][i]
-		refs[((referent_position+1)%2)+1][i] = img_batch[1][i] --self.h5_file:read('/refs'):partial({ix,ix},{1,1},{1,self.vocab_size})
-		refs[((referent_position+2)%2)+1][i] = img_batch[2][i] --self.h5_file:read('/refs'):partial({ix,ix},{2,2},{1,self.vocab_size})
+		refs[((referent_position+1)%2)+1][i] = img_batch[1][i] 
+		refs[((referent_position+2)%2)+1][i] = img_batch[2][i]
 
 		-- discriminative information
 		discriminativeness[{i,{1,self.real_vocab_size}}] = self.h5_file:read('/labels'):partial({ix,ix},{1,self.real_vocab_size})

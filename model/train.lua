@@ -58,7 +58,7 @@ cmd:option('-anneal_temperature',1.000005,'factor to anneal temperature')
 cmd:option('-optim','adam','what update to use? rmsprop|sgd|sgdmom|adagrad|adam')
 cmd:option('-learning_rate',0.01,'learning rate')
 cmd:option('-learning_rate_decay_start', 20000, 'at what iteration to start decaying learning rate? (-1 = dont)')
-cmd:option('-learning_rate_decay_every', 200000, 'every how many iterations thereafter to drop LR by half?')
+cmd:option('-learning_rate_decay_every', 20000, 'every how many iterations thereafter to drop LR by half?')
 cmd:option('-optim_alpha',0.8,'alpha for adagrad/rmsprop/momentum/adam')
 cmd:option('-optim_beta',0.999,'beta used for adam')
 cmd:option('-optim_epsilon',1e-8,'epsilon that goes into denominator for smoothing')
@@ -252,7 +252,7 @@ local function eval_split(split, evalopt)
 	while true do
 
 		-- get batch of data  
-		local data = loaderCommunication:getBatch{batch_size = opt.batch_size, split = 'train'}
+		local data = loaderCommunication:getBatch{batch_size = opt.batch_size, split = 'val'}
 
 
 		local inputs = {}
@@ -368,7 +368,7 @@ local function communicationLoss()
   	
 	--compile gold data
 	local gold = data.referent_position
-
+	
 	--forward in criterion to get loss
 	local loss = protos.communication.criterion:forward(outputs, gold)
 
