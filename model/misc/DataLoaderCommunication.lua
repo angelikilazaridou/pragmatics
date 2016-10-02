@@ -191,6 +191,7 @@ function DataLoader:getBatch(opt)
    		ix = split_ix[ri]
    		assert(ix ~= nil, 'bug: split ' .. split .. ' was accessed out of bounds with ' .. ri)
 		local coin  = 1
+		
 		if split == "train" then
 		 	coin = torch.random(2)
 		end		
@@ -199,16 +200,8 @@ function DataLoader:getBatch(opt)
 		--image representations
 		for ii=1,self.game_size do
 			
-			if split == "traintralala" then
-				if ii==1 then
-					bb = torch.random(self.num_images)
-				else
-					a = torch.random(self.num_images)
-					while a==bb do
-						a = torch.random(self.num_images)
-					end
-					bb = a
-				end
+			if split == "train" or split == "val"  then
+				bb = torch.random(self.num_images)
 			else
 				if coin == 1 then
 					if ii==1 then
@@ -233,10 +226,11 @@ function DataLoader:getBatch(opt)
 		end
 
 		---  create data for P2
-		local referent_position = torch.random(self.game_size)
-	    	label_batch[{ {i,i} }] = referent_position
-		refs[((referent_position+1)%2)+1][i] = img_batch[1][i] 
-		refs[((referent_position+2)%2)+1][i] = img_batch[2][i]
+		local indices = torch.randperm(self.game_size)
+	    	label_batch[{ {i,i} }] = indices[1]
+		for ii=1,self.game_size do
+			refs[indices[ii]][i] = img_batch[ii][i] 
+		end
 
 		-- discriminative information
 		discriminativeness[{i,{1,self.real_vocab_size}}] = self.h5_file:read('/labels'):partial({ix,ix},{1,self.real_vocab_size})
@@ -262,6 +256,7 @@ function DataLoader:getBatch(opt)
 	                table.insert(data.images, img_batch[i]:cuda())
         	        table.insert(data.refs, refs[i]:cuda())
 		end
+		
                 data.referent_position = label_batch:cuda():contiguous() -- note: make label sequences go down as columns
 		data.discriminativeness = discriminativeness:cuda()
 	end

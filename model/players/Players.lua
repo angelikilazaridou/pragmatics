@@ -1,8 +1,8 @@
 require 'dpnn'
 require 'nn'
 
-local sender = require 'players.Sender'
-local receiver = require 'players.Receiver'
+local sender = require 'players.Sender_old'
+local receiver = require 'players.Receiver_old'
 
 local players, parent =  torch.class('nn.Players', 'nn.Module')
 
@@ -18,7 +18,7 @@ function players:__init(opt)
 	self.gpuid = opt.gpuid 
 
 	--defining the two players
-	self.sender = sender.model(opt.comm_game_size, opt.comm_feat_size, opt.vocab_size, opt.property_size, opt.embedding_size_S, opt.dropout, opt.gpuid) 
+	self.sender = sender.model(opt.comm_game_size, opt.comm_feat_size, opt.vocab_size, opt.embedding_size_S, opt.hidden_size, opt.dropout, opt.gpuid) 
 	self.receiver = receiver.model(opt.comm_game_size, opt.comm_feat_size, opt.vocab_size, opt.property_size, opt.embedding_size_R, opt.hidden_size, opt.dropout, opt.gpuid)
 
 	if self.gpuid == 0 then
@@ -40,25 +40,25 @@ end
 function players:updateOutput(input)
 
 	-- input: 	
-	local im1a = input[1]
-	local im1b = input[2]
-	local im2a = input[3]
-	local im2b = input[4]
-	local temp = input[5]
+	local inputS = input[1]
+	local inputR = input[2]
+	local temp = input[3]
 
 	--player 1 receives 2 images --
 	-- does a forward and gives back 1 action -> 1 feature
-	self.probs = self.sender:forward({im1a, im1b})
+	self.probs = self.sender:forward(inputS)
 
 	--sample a feature
 	self.sampled_feat = self.feature_selection:forward({self.probs, temp})
+	
 	--[[to_print = torch.random(1000)
-	if to_print%1000 == 0 then
+	if to_print%100 == 0 then
 		print(self.sampled_feat)
 	end--]]
 
 	-- player 2 receives 2 refs and 1 feature and predicts L or R
-	self.prediction = self.receiver:forward({im2a, im2b, self.sampled_feat})
+	table.insert(inputR, self.sampled_feat)
+	self.prediction = self.receiver:forward(inputR)
 	-- sample image
 	self.sampled_image = self.image_selection:forward({self.prediction, temp})
 	-- baseline
@@ -82,11 +82,9 @@ end
 function players:updateGradInput(input, gradOutput)
 
 	-- input:       
-        local im1a = input[1]
-        local im1b = input[2]
-	local im2a = input[3]
-	local im2b = input[4]
-        local temp = input[5]
+        local inputS = input[1]
+        local inputR = input[2]
+        local temp = input[3]
 
 	-- ds
 	local dsampled_image = gradOutput[1][1]
@@ -105,13 +103,14 @@ function players:updateGradInput(input, gradOutput)
         local dprediction = self.image_selection:backward({self.prediction, temp}, dsampled_image)
 
 	--backprop through player 2 
-	local dsampled_feat = self.receiver:backward({im2a, im2b, self.sampled_feat}, dprediction)
+	table.insert(inputR,self.sampled_feat)
+	local dsampled_feat = self.receiver:backward(inputR, dprediction)
 	
 	-- backprop though selection
 	local dprobs = self.feature_selection:backward({self.probs, temp}, dsampled_feat)
 	
 	--backrprop through player 1
-	dummy = self.sender:backward({im1a, im1b},dprobs)
+	dummy = self.sender:backward(inputS,dprobs)
 
 	--it doesn't really  matter
 	self.gradInputs = dummy

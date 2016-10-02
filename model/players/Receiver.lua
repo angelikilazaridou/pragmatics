@@ -42,7 +42,7 @@ function player2.model(game_size, feat_size, vocab_size, property_size, embeddin
         
 	-- compute interaction between images and attribute vectors 
         local hid = nn.LinearNB(property_size*game_size + embedding_size, hidden_size)(multimodal)
-        hid =  nn.Sigmoid()(hid)
+        hid =  nn.Tanh()(hid)
 	
 	-- scores of images in game
 	local scores = nn.LinearNB(hidden_size, game_size)(hid)

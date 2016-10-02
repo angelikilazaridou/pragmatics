@@ -22,11 +22,13 @@ function Sender.model(game_size, feat_size, vocab_size, property_size, embedding
 		--map images to some property space
 		local property_vec = nn.LinearNB(feat_size, property_size)(dropped):annotate{name='property'}
 		
-		table.insert(all_vecs,property_vec)
-
 		-- sharing property mapping
 		table.insert(shareList[1],property_vec)
-		
+
+		local non_linear = property_vec --nn.ReLU()(property_vec)
+		table.insert(all_vecs,non_linear)
+
+
 	end
 
 
@@ -36,7 +38,7 @@ function Sender.model(game_size, feat_size, vocab_size, property_size, embedding
 	
 	-- hidden layer for discriminativeness
 	local hid = nn.LinearNB(property_size*game_size, embedding_size)(all_vecs_matrix)
-	hid =  nn.Sigmoid()(hid)
+--	hid =  nn.Sigmoid()(hid)
 	
 	
 	-- predicting attributes

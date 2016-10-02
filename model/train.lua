@@ -57,8 +57,8 @@ cmd:option('-temperature2',1,'Initial temperature 2') -- tried with 0.5, didn't 
 cmd:option('-anneal_temperature',1.000005,'factor to anneal temperature')
 cmd:option('-optim','adam','what update to use? rmsprop|sgd|sgdmom|adagrad|adam')
 cmd:option('-learning_rate',0.01,'learning rate')
-cmd:option('-learning_rate_decay_start', 20000, 'at what iteration to start decaying learning rate? (-1 = dont)')
-cmd:option('-learning_rate_decay_every', 20000, 'every how many iterations thereafter to drop LR by half?')
+cmd:option('-learning_rate_decay_start', 2000, 'at what iteration to start decaying learning rate? (-1 = dont)')
+cmd:option('-learning_rate_decay_every', 1000, 'every how many iterations thereafter to drop LR by half?')
 cmd:option('-optim_alpha',0.8,'alpha for adagrad/rmsprop/momentum/adam')
 cmd:option('-optim_beta',0.999,'beta used for adam')
 cmd:option('-optim_epsilon',1e-8,'epsilon that goes into denominator for smoothing')
@@ -255,20 +255,19 @@ local function eval_split(split, evalopt)
 		local data = loaderCommunication:getBatch{batch_size = opt.batch_size, split = 'val'}
 
 
-		local inputs = {}
+		local inputsS = {}
 		--insert images
 		for i=1,#data.images do
-			table.insert(inputs,data.images[i])
+			table.insert(inputsS,data.images[i])
 		end
 		--insert the shuffled refs for P2 	
+		local inputsR = {}
 		for i=1,#data.refs do
-			table.insert(inputs, data.refs[i])
+			table.insert(inputsR, data.refs[i])
 	    	end
-		--insert temperature	
-		table.insert(inputs,opt.temperature)
     
 		--forward model
-		local outputs = protos.communication.players:forward(inputs)
+		local outputs = protos.communication.players:forward({inputsS, inputsR, opt.temperature})
    
 		--prepage gold data	
 		local gold = data.referent_position
@@ -352,19 +351,19 @@ local function communicationLoss()
 	local data = loaderCommunication:getBatch{batch_size = opt.batch_size, split = 'train'}
   
   
-	local inputs = {}
-	--compile input to players
-	for i=1,#data.images do
-		table.insert(inputs,data.images[i])
-	end
-	--insert the shuffled refs for P2 
-	for i=1,#data.refs do
-        	table.insert(inputs, data.refs[i])
-    	end
-	--insert temperature
-	table.insert(inputs,opt.temperature)
+	local inputsS = {}
+        --insert images
+        for i=1,#data.images do
+  	      table.insert(inputsS,data.images[i])
+        end
+        --insert the shuffled refs for P2       
+        local inputsR = {}
+        for i=1,#data.refs do
+              table.insert(inputsR, data.refs[i])
+        end
+
 	--forward model
-	local outputs = protos.communication.players:forward(inputs)
+	local outputs = protos.communication.players:forward({inputsS, inputsR, opt.temperature})
   	
 	--compile gold data
 	local gold = data.referent_position
@@ -380,7 +379,7 @@ local function communicationLoss()
 	local dpredicted = protos.communication.criterion:backward(outputs, gold)
 
 	-- backprop through model
-	local dummy = protos.communication.players:backward(inputs, {dpredicted})
+	local dummy = protos.communication.players:backward({inputsS, inputsR, opt.temperature}, {dpredicted})
 	
 	-- freeze during backprop for sender
 	if opt.embeddings_file_S~="" and (opt.fine_tune==0 or opt.fine_tune==2) then
