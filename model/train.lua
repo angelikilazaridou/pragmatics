@@ -514,12 +514,9 @@ while true do
     		checkpoint.val_acc_history = val_acc_history
 
     		utils.write_json(checkpoint_path .. '.json', checkpoint)
-    		--print('wrote json checkpoint to ' .. checkpoint_path .. '.json')
 
     		-- write the full model checkpoint as well if we did better than ever
     		local current_score = loss
-    		if iter > 0 then -- dont save on very first iteration
-			-- include the protos (which have weights) and save to filE
 			local save_protos = {}
 			if opt.grounding~=1 then
 				save_protos.communication = protos.communication.players -- these are shared clones, and point to correct param storage
@@ -528,11 +525,7 @@ while true do
 				save_protos.grounding = protos.grounding.players
 			end
 			checkpoint.protos = save_protos
-			-- also include the vocabulary mapping so that we can use the checkpoint 
- 			-- alone to run on arbitrary images without the data loader
 			torch.save(checkpoint_path .. '.t7', checkpoint)
-			--print('wrote checkpoint to ' .. checkpoint_path .. '.t7')
-		end
 	end
 	-- decay the learning rate
 	local learning_rate = opt.learning_rate
