@@ -1,9 +1,10 @@
-from itertools import combinations_with_replacement, product
+from itertools import combinations_with_replacement, product, permutations
 import os
 import json
 import argparse
 from random import shuffle, seed
 import string
+import random
 # non-standard dependencies:
 import h5py
 import numpy as np
@@ -91,14 +92,17 @@ def format_data(vocab_size, balanced, objects):
 	else:
 		to_keep = cats[:vocab_size]
 
+	
 	#create all combinations of pairs of concepts -> <referent, context>
-	for i1, i2 in list(combinations_with_replacement(range(len(to_keep)),2)):
+	for i1, i2 in combinations_with_replacement(range(len(to_keep)),2):
+	#for i1, i2 in combinations_with_replacement(range(10),2):
 		if i1==i2:
 			continue
 		c1 = to_keep[i1]
 		c2 = to_keep[i2]
 		objs1 = objects[c1]
 		objs2 = objects[c2]
+		'''
 		all_pairs = list(product(objs1,objs2))
 		shuffle(all_pairs)
 
@@ -109,8 +113,11 @@ def format_data(vocab_size, balanced, objects):
 				keep = len(all_pairs)
 			else:
 				keep = balanced
+		'''
+		for jj in range(balanced):
+			p1 = random.choice(objs1.keys())
+			p2 = random.choice(objs2.keys())
 
-		for p1,p2 in all_pairs[:balanced]:
 			d = {}
 			d['discr'] = c1
 			d['RE1'] = c1
@@ -124,6 +131,21 @@ def format_data(vocab_size, balanced, objects):
 			d['ratio'] = -1
 
 			data_new.append(d)
+
+			d = {}
+                        d['discr'] = c2
+                        d['RE1'] = c2
+                        d['RE2'] = c1
+                        d['bb1'] = p2
+                        d['bb2'] = p1
+                        d['bb1_i'] = objects[c2][p2]
+                        d['bb2_i'] = objects[c1][p1]
+                        d['RE1_original'] = c2
+                        d['RE2_original'] = c1
+                        d['ratio'] = -1
+
+                        data_new.append(d)
+
 	return data_new
 
 def main(params):
@@ -146,6 +168,7 @@ def main(params):
   	seed(123) # make reproducible
   	shuffle(data_new) # shuffle the order
 
+	
 
 	# create the vocab
 	vocab = build_vocab(data_new, params)
@@ -182,14 +205,13 @@ if __name__ == "__main__":
 
 	parser = argparse.ArgumentParser()
 
-	parser.add_argument('--vocab_size',default=-1,type=int,help='size of vocabulary')
-	parser.add_argument('--balanced',default=100,type=int,help='instances per concept pair')
+	parser.add_argument('--vocab_size',default=100,type=int,help='size of vocabulary')
+	parser.add_argument('--balanced',default=50,type=int,help='instances per concept pair')
 	parser.add_argument('--images_ids',default="/home/angeliki/git/pragmatics/DATA/visVecs/out_index.txt",help='Image ides to generate data')
 	parser.add_argument('--num_val', default=1000, type=int, help='number of images to assign to validation data (for CV etc)')
-	parser.add_argument('--output_json', default='data.json', help='output json file')
-	parser.add_argument('--output_h5', default='data.h5', help='output h5 file')
+	parser.add_argument('--output_json', default='data.json.new', help='output json file')
+	parser.add_argument('--output_h5', default='data.h5.new', help='output h5 file')
 	parser.add_argument('--num_test', default=1000, type=int, help='number of test images (to withold until very very end)')
-
 	args = parser.parse_args()
 
 	params = vars(args) # convert to ordinary dict

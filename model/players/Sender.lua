@@ -4,7 +4,7 @@ require 'nngraph'
 require 'dp'
 
 local Sender = {}
-function Sender.model(game_size, feat_size, vocab_size, property_size, embedding_size, dropout, gpu)
+function Sender.model(game_size, feat_size, vocab_size, embedding_size, property_size, dropout, gpu)
 
 
 	local shareList = {}
@@ -25,7 +25,7 @@ function Sender.model(game_size, feat_size, vocab_size, property_size, embedding
 		-- sharing property mapping
 		table.insert(shareList[1],property_vec)
 
-		local non_linear = property_vec --nn.ReLU()(property_vec)
+		local non_linear = nn.ReLU()(property_vec)
 		table.insert(all_vecs,non_linear)
 
 
@@ -37,15 +37,16 @@ function Sender.model(game_size, feat_size, vocab_size, property_size, embedding
 	local all_vecs_matrix = nn.JoinTable(2)(all_vecs)
 	
 	-- hidden layer for discriminativeness
-	local hid = nn.LinearNB(property_size*game_size, embedding_size)(all_vecs_matrix)
---	hid =  nn.Sigmoid()(hid)
+	local hid = nn.LinearNB(property_size*game_size, embedding_size)(all_vecs_matrix):annotate{name='fixed'}
+	hid =  nn.Dropout(0.5)(nn.ReLU()(hid))
 	
 	
 	-- predicting attributes
 	local attributes = nn.LinearNB(embedding_size, vocab_size)(hid):annotate{name='embeddings_S'}
-	
+
+		
 	-- probabilities over discriminative
-	local probs_attributes = nn.SoftMax()(attributes)
+	local probs_attributes = attributes --nn.SoftMax()(attributes)
 	--take out discriminative 
     	local outputs = {}
 	table.insert(outputs, probs_attributes)

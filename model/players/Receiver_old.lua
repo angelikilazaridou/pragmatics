@@ -18,7 +18,7 @@ function player2.model(game_size, feat_size, vocab_size, property_size, embeddin
 
 		local dropped = nn.Dropout(dropout)(image)		
 		--map images to some property space
-		local property_vec = nn.LinearNB(feat_size, embedding_size)(dropped)
+		local property_vec = nn.LinearNB(feat_size, embedding_size)(dropped):annotate{name="property"}
 		table.insert(shareList[1],property_vec)
 
 		local p_t = property_vec
@@ -33,10 +33,10 @@ function player2.model(game_size, feat_size, vocab_size, property_size, embeddin
         -- the attribute of P1
         local property = nn.Identity()()
         table.insert(inputs, property)
-	local embedding = nn.Linear(vocab_size, embedding_size)(property)
+	local embedding = nn.LinearNB(vocab_size, embedding_size)(property):annotate{name="embeddings_R"}
+
 	-- convert to 3d
 	local property_3d = nn.View(1,-1):setNumInputDims(1)(embedding)
-        
 	-- batch_size x 2
 	local selection = nn.MM(false,true)({properties_3d, property_3d})
 	local result = nn.View(-1,game_size)(selection)

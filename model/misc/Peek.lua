@@ -6,13 +6,15 @@ function Peek:__init(report_func)
 end
 
 function Peek:updateOutput(input)
-    print('Module input')
 
     self.output=input
     if self.report_func then
       print(self.report_func(input))
     else
-      print(input)
+      to_print = torch.random(1000)
+        if to_print%100 == 0 then
+                print(input[1])
+        end
     end
 
     return self.output

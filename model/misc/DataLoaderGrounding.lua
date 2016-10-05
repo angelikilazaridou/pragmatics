@@ -13,6 +13,7 @@ function DataLoader:__init(opt)
 	self.gpu = opt.gpu
   
 	self.real_vocab_size = self.info.vocab_size
+
 	self.game_size = opt.game_size
 	self.embeddings = {}
 
@@ -152,7 +153,7 @@ function DataLoader:getBatch(opt)
 
   	-- the data
     	local img_batch = torch.FloatTensor(batch_size,  self.feat_size)
-	local label_batch =  torch.FloatTensor(batch_size)
+	local label_batch =  torch.Tensor(batch_size)
 	
 	local max_index = #split_ix
 	local wrapped = false

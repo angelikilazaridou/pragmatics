@@ -26,6 +26,8 @@ cmd:option('-comm_input_json','COMMUNICATION: ../DATA/game/v3/data.json','path t
 cmd:option('-comm_input_h5_images','COMMUNICATION: ..DATA/game/v3/toy_images.h5','path to the h5 of the referit bounding boxes')
 cmd:option('-comm_feat_size',-1,'COMMUNICATION: The number of image features')
 cmd:option('-comm_game_size',2,'COMMUNICATION: Number of images in the game')
+cmd:option('-comm_noise',0,'COMMUNICATION: Add noise in representation of Receiver')
+cmd:option('-comm_sender','sender_simple','Which sender to use [sender_no_embeddings, *sender_simple*, sender_convnet')
 -- Data input settings: Grounding
 cmd:option('-gr_task','','GROUNDING: Which game to play (v1=REFERIT, v2=OBJECTS, v3=SHAPES). If left empty, json/h5/images.h5 should be given seperately')
 cmd:option('-gr_task_size',1,'GROUNDING: Number of inputs given to the player')
@@ -51,14 +53,11 @@ cmd:option('-max_iters', 3500, 'max number of iterations to run for (-1 = run fo
 cmd:option('-batch_size',32,'what is the batch size of games')
 cmd:option('-grad_clip',0.1,'clip gradients at this value (note should be lower than usual 5 because we normalize grads by both batch and seq_length)')
 -- Optimization: for the model
-cmd:option('-temperature',10,'Initial temperature')
-cmd:option('-decay_temperature',0.99995,'factor to decay temperature')
-cmd:option('-temperature2',1,'Initial temperature 2') -- tried with 0.5, didn't do the job
-cmd:option('-anneal_temperature',1.000005,'factor to anneal temperature')
+cmd:option('-temperature',1,'Initial temperature')
 cmd:option('-optim','adam','what update to use? rmsprop|sgd|sgdmom|adagrad|adam')
 cmd:option('-learning_rate',0.01,'learning rate')
-cmd:option('-learning_rate_decay_start', 2000, 'at what iteration to start decaying learning rate? (-1 = dont)')
-cmd:option('-learning_rate_decay_every', 1000, 'every how many iterations thereafter to drop LR by half?')
+cmd:option('-learning_rate_decay_start', 10000, 'at what iteration to start decaying learning rate? (-1 = dont)')
+cmd:option('-learning_rate_decay_every', 5000, 'every how many iterations thereafter to drop LR by half?')
 cmd:option('-optim_alpha',0.8,'alpha for adagrad/rmsprop/momentum/adam')
 cmd:option('-optim_beta',0.999,'beta used for adam')
 cmd:option('-optim_epsilon',1e-8,'epsilon that goes into denominator for smoothing')
@@ -105,8 +104,8 @@ if opt.comm_game == 'v1' then
 	opt.comm_input_h5 = '../DATA/game/v1/data.h5'
 	opt.comm_input_h5_images = '../DATA/game/v1/vectors_transposed.h5'
 elseif opt.comm_game == 'v2' then
-	opt.comm_input_json = '../DATA/game/v2/data.json'
-        opt.comm_input_h5 = '../DATA/game/v2/data.h5'
+	opt.comm_input_json = '../DATA/game/v2/data.json.new'
+        opt.comm_input_h5 = '../DATA/game/v2/data.h5.new'
         opt.comm_input_h5_images = '../DATA/game/v2/vectors_transposed.h5'
 elseif opt.comm_game == 'v3' then
 	opt.comm_input_json = '../DATA/game/v3/data.json'
@@ -122,8 +121,8 @@ if opt.gr_task == 'v1' then
         opt.gr_input_h5 = '../DATA/game/v1/data.h5'
         opt.gr_input_h5_images = '../DATA/game/v1/vectors_transposed.h5'
 elseif opt.gr_task == 'v2' then
-        opt.gr_input_json = '../DATA/game/v2/data.json'
-        opt.gr_input_h5 = '../DATA/game/v2/data.h5'
+        opt.gr_input_json = '../DATA/game/v2/data.json.new'
+        opt.gr_input_h5 = '../DATA/game/v2/data.h5.new'
         opt.gr_input_h5_images = '../DATA/game/v2/vectors_transposed.h5'
 elseif opt.gr_task == 'v3' then
         opt.gr_input_json = '../DATA/game/v3/data.json'
@@ -139,7 +138,7 @@ local loaderCommunication, loaderGrounding, game_size, feat_size, vocab_size
  -- Create the Data Loader instance for the Communication
 -------------------------------------------------------------------------------
 if opt.grounding ~= 1 then
-	loaderCommunication = DataLoaderCommunication{h5_file = opt.comm_input_h5, json_file = opt.comm_input_json,  feat_size = opt.comm_feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size, h5_images_file = opt.comm_input_h5_images, game_size = opt.comm_game_size, embeddings_file_S = opt.embeddings_file_S, embeddings_file_R = opt.embeddings_file_R, embedding_size_S = opt.embedding_size_S, embedding_size_R = opt.embedding_size_R}
+	loaderCommunication = DataLoaderCommunication{h5_file = opt.comm_input_h5, json_file = opt.comm_input_json,  feat_size = opt.comm_feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size, h5_images_file = opt.comm_input_h5_images, game_size = opt.comm_game_size, embeddings_file_S = opt.embeddings_file_S, embeddings_file_R = opt.embeddings_file_R, embedding_size_S = opt.embedding_size_S, embedding_size_R = opt.embedding_size_R, noise = opt.comm_noise}
 	game_size = loaderCommunication:getGameSize()
 	feat_size = loaderCommunication:getFeatSize()
 	vocab_size = loaderCommunication:getVocabSize()
@@ -163,6 +162,7 @@ opt.vocab_size = vocab_size
 opt.game_size = game_size
 opt.feat_size = feat_size
 
+print(vocab_size)
 ------------------------------------------------------------------------------
 -- Printing opt
 -----------------------------------------------------------------------------
@@ -234,7 +234,14 @@ end
 
 
 collectgarbage() 
-
+idx= torch.Tensor(1,loaderCommunication:getVocabSize()):zero()
+for i=1,loaderCommunication:getVocabSize() do
+	idx[1][i] = i
+end
+if opt.gpuid >=0 then
+	print("here")
+	idx = idx:cuda()
+end
 -------------------------------------------------------------------------------
 -- Validation evaluation
 -------------------------------------------------------------------------------
@@ -268,7 +275,14 @@ local function eval_split(split, evalopt)
     
 		--forward model
 		local outputs = protos.communication.players:forward({inputsS, inputsR, opt.temperature})
-   
+		
+		--[[for b=1,data.discriminativeness:size(1) do
+			local k = 30
+			if data.discriminativeness[b][k]==1 then
+				print(torch.sum(torch.cmul(outputs[3][b],idx)))
+			end
+		end]]--
+		
 		--prepage gold data	
 		local gold = data.referent_position
     	
@@ -316,7 +330,6 @@ local function groundingLoss()
 
 	-- forward model
 	local outputs = protos.grounding.players:forward(d.images)
-	
 	-- compute loss
 	local loss = protos.grounding.criterion:forward(outputs, d.labels)
 
@@ -424,17 +437,61 @@ local checkpoint_path = opt.checkpoint_path .. 'cp_id' .. opt.id ..'.cp'
 while true do  
 
 	local losses
+	-- get grads
+	local gr_prop, comm_prop, gr_embed, comm_embed
+	if opt.grounding > 0 and opt.grounding <1 then
+		
+		local nodes = protos.communication.players.sender:listModules()[1]['forwardnodes']
+                for _,node in ipairs(nodes) do
+                        if node.data.annotations.name=='property' then
+                                comm_prop = node.data.module.weight 
+                        end
+			if node.data.annotations.name=='embeddings_S' then
+                                comm_embed = node.data.module.weight
+                        end
+                end
+		local nodes = protos.grounding.players:listModules()[1]['forwardnodes']
+                for _,node in ipairs(nodes) do
+                        if node.data.annotations.name=='property' then
+                                gr_prop = node.data.module.weight 
+                        end
+			if node.data.annotations.name=='embeddings_S' then
+                                gr_embed = node.data.module.weight
+                        end
+                end
+	end
+
 	local coin = torch.uniform()
 	if coin < opt.grounding then
+		
 		if opt.grounding ~= 1 then
-			gr_params[{{gr_params:nElement()-(opt.embedding_size_S*opt.vocab_size),gr_params:nElement()}}] = params[{{params:nElement()-(opt.embedding_size_S*opt.vocab_size),params:nElement()}}]:clone()
+			gr_embed = comm_embed:clone()
+			gr_prop = comm_prop:clone()
 		end
+
 		gr_loss = groundingLoss()
+
+		local nodes = protos.grounding.players:listModules()[1]['forwardnodes']
+                for _,node in ipairs(nodes) do
+                        if node.data.annotations.name=='fixed' then
+                                node.data.module.gradWeight:fill(0)
+                        end
+                end
+		
 	else
 		if opt.grounding ~= 0 then
-			params[{{params:nElement()-(opt.embedding_size_S*opt.vocab_size),params:nElement()}}] = gr_params[{{gr_params:nElement()-(opt.embedding_size_S*opt.vocab_size),gr_params:nElement()}}]:clone()
+			comm_embed = gr_embed:clone()
+			comm_prop = gr_prop:clone()
 		end
+	
 		losses = communicationLoss()
+	
+		local nodes = protos.communication.players.sender:listModules()[1]['forwardnodes']
+                for _,node in ipairs(nodes) do
+                        if node.data.annotations.name=='fixed' then
+                                node.data.module.gradWeight:fill(0)
+                        end
+                end
 	end
 
 	local loss = 0
@@ -464,9 +521,11 @@ while true do
     		if iter > 0 then -- dont save on very first iteration
 			-- include the protos (which have weights) and save to filE
 			local save_protos = {}
-			save_protos.communication = protos.communication.players -- these are shared clones, and point to correct param storage
-			if opt.grounding > 0 then
-				save_protos.grounding = protos.grounding.sender
+			if opt.grounding~=1 then
+				save_protos.communication = protos.communication.players -- these are shared clones, and point to correct param storage
+			end
+			if opt.grounding~= 0 then
+				save_protos.grounding = protos.grounding.players
 			end
 			checkpoint.protos = save_protos
 			-- also include the vocabulary mapping so that we can use the checkpoint 
@@ -482,17 +541,18 @@ while true do
     		local decay_factor = math.pow(0.5, frac)
 		learning_rate = learning_rate * decay_factor -- set the decayed rate
  	 end
+
+
 	--anneal temperature
-	if opt.temperature >0 then
-  		opt.temperature = math.max(0.000001,opt.decay_temperature * opt.temperature)
-	else
-		opt.temperature = 1
+	if opt.temperature <0 and iter > opt.learning_rate_decay_start and opt.learning_rate_decay_start >= 0 then
+		local frac = (iter - opt.learning_rate_decay_start) / opt.learning_rate_decay_every
+		local anneal_factor = frac -- math.pow(0.5, frac)
+		opt.temperature = math.max(1, opt.temperature*anneal_factor)
 	end
-	--opt.temperature2 = math.min(1,opt.anneal_temperature * opt.temperature2)
 
 	if iter % opt.print_every == 0 then
 		--print(string.format("%d, grad norm = %6.4e, param norm = %6.4e, grad/param norm = %6.4e, lr = %6.4e", iter, grad_params:norm(), params:norm(), grad_params:norm() / params:norm(), learning_rate))
- 		print(string.format("%d @ %f @ %f",iter, acc, gr_loss))
+ 		print(string.format("%d @ %f @ %f @ %f",iter, acc, gr_loss, opt.temperature))
  	 end
 	
 

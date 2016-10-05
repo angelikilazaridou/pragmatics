@@ -11,11 +11,8 @@ dataset = sys.argv[2]
 N = int(sys.argv[3])
 pos = int(sys.argv[4]) 
 
-x = range(N-1)
-k = 100
-
-xnew = np.linspace(min(x), max(x), k)
-
+k = 10
+x = []
 all_accs = []
 
 with open(f,'r') as f:
@@ -27,12 +24,17 @@ with open(f,'r') as f:
 		if ' @ ' in line:
 			if l != 0:
 				accs.append(float(line.split('@')[pos].rstrip().strip()))
+				x.append(int(line.split('@')[0].strip()))
+			
 			l = l+1
-	#smoothing values		
-	all_accs =  interp1d(x,accs)(xnew)
 
+xnew = np.linspace(min(x), max(x), k)
+#smoothing values		
+all_accs =  interp1d(x,accs)(xnew)
 
-print(len(all_accs))
+#xnew = x
+#all_accs = accs
+
 #One plot per model type (h2)
 a,  = plt.plot(xnew, all_accs,  linewidth=2)
 plt.xlabel('# iterations', fontsize=20)

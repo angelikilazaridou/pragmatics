@@ -11,10 +11,10 @@ function DataLoader:__init(opt)
 	-- TODO: in case we load word embeddings, make sure to find correspondance with old vocabulary
 	self.vocab = self.info.ix_to_word
 	self.gpu = opt.gpu
-
-	print(self.gpu)  
+	self.noise = opt.noise
 	self.real_vocab_size = self.info.vocab_size
 	self.game_size = opt.game_size
+
 	self.embeddings = {}
 
 	-- load word embeddings and set vocab size of receiver
@@ -226,10 +226,14 @@ function DataLoader:getBatch(opt)
 		end
 
 		---  create data for P2
+		-- insert moise
 		local indices = torch.randperm(self.game_size)
 	    	label_batch[{ {i,i} }] = indices[1]
 		for ii=1,self.game_size do
 			refs[indices[ii]][i] = img_batch[ii][i] 
+			if self.noise == 1 then
+				refs[indices[ii]][i] = refs[indices[ii]][i] + torch.rand(1,self.feat_size)
+			end
 		end
 
 		-- discriminative information

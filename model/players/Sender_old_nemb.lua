@@ -4,7 +4,7 @@ require 'nngraph'
 require 'dp'
 
 local player1 = {}
-function player1.model(game_size, feat_size, vocab_size, embedding_size, hidden_size, dropout, gpu)
+function player1.model(game_size, feat_size, vocab_size, hidden_size, dropout, gpu)
 
 	local shareList = {}
 	--read in inputs
@@ -17,41 +17,32 @@ function player1.model(game_size, feat_size, vocab_size, embedding_size, hidden_
 		table.insert(inputs, image)
 		local dropped = nn.Dropout(dropout)(image)
 		--map images to some property space
-		local property_vec = nn.LinearNB(feat_size, embedding_size)(dropped):annotate{name='property'}
+		local property_vec = nn.LinearNB(feat_size, vocab_size)(dropped):annotate{name='property'}
 		table.insert(shareList[1],property_vec)
 
 		--local p_t = nn.Sigmoid()(nn.MulConstant(1)(property_vec))
 		local p_t = property_vec
+		
 		table.insert(all_prop_vecs,p_t)
 
 	end
 
-	-- in: table game_size x batch_size x embedding_size
-	-- out: tensor batch_size x game_size x embedding_size
-	local properties_3d = nn.View(game_size, -1):setNumInputDims(1)(nn.JoinTable(2)(all_prop_vecs))
 
-	-- in: tensor batch_size x game_size x embedding_size
-	-- out: tensor batch_size * embedding_size x game_size
+	-- Then convert to 3d -> batch_size x 2 x property_size
+	local properties_3d = nn.View(game_size, -1):setNumInputDims(1)(nn.JoinTable(2)(all_prop_vecs))
+	-- convert to batch_size * property_size x 2
 	local properties_3d_b = nn.View(-1, game_size)(nn.Transpose({2,3})(properties_3d))
 	
-	--hidden layer for comparison
-	local comparison = nn.LinearNB(game_size, hidden_size)(properties_3d_b)
-	comparison  =  nn.Sigmoid()(comparison)
+	--hidden layer for discriminativeness
+	local hid = nn.LinearNB(game_size, hidden_size)(properties_3d_b)
+	hid  =  nn.Sigmoid()(hid)
 	
 	--compute discriminativeness
-	local result = nn.LinearNB(hidden_size,1)(comparison)
-	-- out: batch_size x embedding_size
-	result = nn.View(-1,embedding_size)(result)	
-	
-	result = nn.Sigmoid()(result)
-
-	-- in: batch_size x embedding_size
-	-- out: batch_size x vocab_size
-	local scores = nn.LinearNB(embedding_size, vocab_size)(result):annotate{name='embeddings_S'}
-	
-	--take ouput
+	local discr = nn.LinearNB(hidden_size,1)(hid)
+	--reshaping to batch_size x feat_size
+	local result = nn.View(-1,vocab_size)(discr)
     	local outputs = {}
-	table.insert(outputs, scores)
+	table.insert(outputs, result)
 	
 
 	local model = nn.gModule(inputs, outputs)
