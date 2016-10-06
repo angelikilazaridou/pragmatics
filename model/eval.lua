@@ -86,7 +86,7 @@ local players = checkpoint.protos.communication
 -------------------------------------------------------------------------------
 -- Create the Data Loader instance
 -------------------------------------------------------------------------------
-local loader = DataLoaderCommunication{h5_file = opt.input_h5, json_file = opt.input_json, feat_size = checkpoint.opt.comm_feat_size, gpu = checkpoint.opt.gpuid, h5_images_file = opt.input_h5_images, game_size = checkpoint.opt.comm_game_size, feat_size = checkpoint.opt.comm_feat_size, vocab_size = checkpoint.opt.vocab_size, embeddings_file_R = "", embeddings_file_S = ""}
+local loader = DataLoaderCommunication{h5_file = opt.input_h5, json_file = opt.input_json, feat_size = checkpoint.opt.comm_feat_size, gpu = checkpoint.opt.gpuid, h5_images_file_r = opt.input_h5_images, h5_images_file = opt.input_h5_images, game_size = checkpoint.opt.comm_game_size, feat_size = checkpoint.opt.comm_feat_size, vocab_size = checkpoint.opt.vocab_size, embeddings_file_R = "", embeddings_file_S = ""}
 
 opt.vocab_size = checkpoint.opt.vocab_size
 
