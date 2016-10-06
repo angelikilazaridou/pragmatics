@@ -56,7 +56,8 @@ function DataLoader:__init(opt)
  	--  open the hdf5 images file
 	print('COMMUNICATION: DataLoader loading h5 images file: ', opt.h5_images_file)
 	self.h5_images_file = hdf5.open(opt.h5_images_file, 'r')
- 
+ 	self.h5_images_file_r = hdf5.open(opt.h5_images_file_r, 'r')
+
   	-- extract image size from dataset
   	self.images_size = self.h5_images_file:read('/images'):dataspaceSize()
         print(self.images_size)
@@ -195,7 +196,13 @@ function DataLoader:getBatch(opt)
 		if split == "train" then
 		 	coin = torch.random(2)
 		end		
-		
+	
+		local indices = torch.randperm(self.game_size)
+		--[[for k=1,self.game_size do
+			indices[k] = k
+		end--]]
+	    	label_batch[{ {i,i} }] = indices[1]	
+
 		local bb
 		--image representations
 		for ii=1,self.game_size do
@@ -218,22 +225,20 @@ function DataLoader:getBatch(opt)
 
 				end
 			end
-			
+
+			-- P1		
 			local img = self.h5_images_file:read('/images'):partial({bb,bb}, {1,self.feat_size})
 			--normalize to unit norm
-			local img_norm = torch.norm(img)
-	    		img_batch[ii][i] = img/img_norm
-		end
+	    		img_batch[ii][i] = img/torch.norm(img)
 
-		---  create data for P2
-		-- insert moise
-		local indices = torch.randperm(self.game_size)
-	    	label_batch[{ {i,i} }] = indices[1]
-		for ii=1,self.game_size do
-			refs[indices[ii]][i] = img_batch[ii][i] 
-			if self.noise == 1 then
-				refs[indices[ii]][i] = refs[indices[ii]][i] + torch.rand(1,self.feat_size)
-			end
+			-- P2
+			--bb = torch.random(self.num_images)
+                        local img =  self.h5_images_file_r:read('/images'):partial({bb,bb}, {1,self.feat_size})
+                        refs[indices[ii]][i] = img/torch.norm(img)
+                        if self.noise == 1 then
+                        	refs[indices[ii]][i] = refs[indices[ii]][i] + torch.rand(1,self.feat_size)
+                        end
+
 		end
 
 		-- discriminative information

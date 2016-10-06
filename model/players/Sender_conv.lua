@@ -4,9 +4,8 @@ require 'nngraph'
 require 'dp'
 
 local player1 = {}
-function player1.model(game_size, feat_size, vocab_size, embedding_size, hidden_size, dropout, gpu)
+function player1.model(game_size, feat_size, vocab_size, embedding_size, property_size, dropout, gpu)
 
-	local property_size = embedding_size/2
 	local shareList = {}
 	shareList[1] = {} --share problem-specific mapping to property space
 

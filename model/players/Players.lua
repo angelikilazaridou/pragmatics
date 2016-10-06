@@ -16,6 +16,7 @@ function players:__init(opt)
 	self.game_size = opt.comm_game_size
 	self.embedding_size = opt.embedding_size
 	self.gpuid = opt.gpuid 
+	self.print_info = opt.print_info
 
 	--defining the two players
 	if opt.comm_sender == 'sender_no_embeddings' then
@@ -26,7 +27,7 @@ function players:__init(opt)
                 self.sender = s.model(opt.comm_game_size, opt.comm_feat_size, opt.vocab_size, opt.embedding_size_S, opt.hidden_size, opt.dropout, opt.gpuid)
 	else
 		local s = require 'players.Sender_conv'
-		self.sender = s.model(opt.comm_game_size, opt.comm_feat_size, opt.vocab_size, opt.embedding_size_S, opt.hidden_size, opt.dropout, opt.gpuid)
+		self.sender = s.model(opt.comm_game_size, opt.comm_feat_size, opt.vocab_size, opt.embedding_size_S, opt.property_size, opt.dropout, opt.gpuid)
 	end
 	
 	self.receiver = receiver.model(opt.comm_game_size, opt.comm_feat_size, opt.vocab_size, opt.property_size, opt.embedding_size_R, opt.hidden_size, opt.dropout, opt.gpuid)
@@ -70,11 +71,14 @@ function players:updateOutput(input)
 	--sample a feature
 	self.sampled_feat = self.feature_selection:forward(self.probs)
 	
-	to_print = torch.random(1000)
-	if to_print%100 == 0 then
-		print(torch.sum(self.sampled_feat,1))
+	if self.print_info == 1 then	
+		to_print = torch.random(1000)
+		if to_print%100 == 0 then
+			print(torch.sum(self.sampled_feat,1))
+		end
 	end
 	
+
 	-- player 2 receives 2 refs and 1 feature and predicts L or R
 	table.insert(inputR, self.sampled_feat)
 	self.prediction = self.receiver:forward(inputR)

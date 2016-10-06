@@ -20,11 +20,10 @@ function Sender_gr.model(game_size, feat_size, vocab_size, property_size, embedd
 	--map images to some property space
 	local property_vec = nn.LinearNB(feat_size, property_size)(dropped):annotate{name='property'}
 	
- 	property_vec = nn.ReLU()(property_vec)	
+ 	property_vec = nn.Sigmoid()(property_vec)	
 	
 	-- hidden layer for discriminativeness
 	local hid = nn.LinearNB(property_size*game_size, embedding_size)(property_vec):annotate{name='fixed'}
-	hid = nn.Dropout(0.5)(nn.ReLU()(hid))
 	
 	-- predicting attributes
 	local attributes = nn.LinearNB(embedding_size, vocab_size)(hid):annotate{name='embeddings_S'}

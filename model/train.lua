@@ -28,6 +28,8 @@ cmd:option('-comm_feat_size',-1,'COMMUNICATION: The number of image features')
 cmd:option('-comm_game_size',2,'COMMUNICATION: Number of images in the game')
 cmd:option('-comm_noise',0,'COMMUNICATION: Add noise in representation of Receiver')
 cmd:option('-comm_sender','sender_simple','Which sender to use [sender_no_embeddings, *sender_simple*, sender_convnet')
+cmd:option('-comm_layer','probs','Which layer to use as input to sender [probs | fc]')
+cmd:option('-comm_viewpoints',1,'Whether to use similar viewpoints or not [1=same layer, 0=different layer]')
 -- Data input settings: Grounding
 cmd:option('-gr_task','','GROUNDING: Which game to play (v1=REFERIT, v2=OBJECTS, v3=SHAPES). If left empty, json/h5/images.h5 should be given seperately')
 cmd:option('-gr_task_size',1,'GROUNDING: Number of inputs given to the player')
@@ -74,6 +76,7 @@ cmd:option('-seed', 123, 'random number generator seed to use')
 cmd:option('-gpuid', 0, 'which gpu to use. -1 = use CPU')
 cmd:option('-verbose',false,'How much info to give')
 cmd:option('-print_every',100,'Print some statistics')
+cmd:option('-print_info','0','Print some information for inspection while training')
 cmd:text()
 
 
@@ -81,7 +84,7 @@ cmd:text()
 -- Basic Torch initializations
 -------------------------------------------------------------------------------
 local opt = cmd:parse(arg)
-opt.id = '_g@'..opt.comm_game..'_h@'..opt.hidden_size..'_d@'..opt.dropout..'_f@'..opt.comm_feat_size..'_w@'..opt.vocab_size..'_a@'..opt.property_size..'_eS@'..opt.embedding_size_S..'_eR@'..opt.embedding_size_R
+opt.id = '_g@'..opt.comm_game..'_t@'..opt.temperature..'_v@'..opt.comm_viewpoints..'_l@'..opt.comm_layer..'_g@'..opt.grounding
 
 
 torch.manualSeed(opt.seed)
@@ -106,7 +109,21 @@ if opt.comm_game == 'v1' then
 elseif opt.comm_game == 'v2' then
 	opt.comm_input_json = '../DATA/game/v2/data.json.new'
         opt.comm_input_h5 = '../DATA/game/v2/data.h5.new'
-        opt.comm_input_h5_images = '../DATA/game/v2/vectors_transposed.h5'
+	if opt.comm_layer == 'probs' then
+        	opt.comm_input_h5_images = '../DATA/game/v2/images_single.normprobs.h5'
+		if opt.comm_viewpoints == 1 then
+			opt.comm_input_h5_images_r = opt.comm_input_h5_images
+		else
+			opt.comm_input_h5_images_r = '../DATA/game/v2/vectors_transposed.h5'
+		end
+	else
+		opt.comm_input_h5_images = '../DATA/game/v2/vectors_transposed.h5'
+		if opt.comm_viewpoints == 1 then
+                        opt.comm_input_h5_images_r = opt.comm_input_h5_images
+                else
+                        opt.comm_input_h5_images_r = '../DATA/game/v2/images_single.normprobs.h5'
+		end
+	end
 elseif opt.comm_game == 'v3' then
 	opt.comm_input_json = '../DATA/game/v3/data.json'
         opt.comm_input_h5 = '../DATA/game/v3/data.h5'
@@ -123,7 +140,7 @@ if opt.gr_task == 'v1' then
 elseif opt.gr_task == 'v2' then
         opt.gr_input_json = '../DATA/game/v2/data.json.new'
         opt.gr_input_h5 = '../DATA/game/v2/data.h5.new'
-        opt.gr_input_h5_images = '../DATA/game/v2/vectors_transposed.h5'
+        opt.gr_input_h5_images = opt.comm_input_h5_images
 elseif opt.gr_task == 'v3' then
         opt.gr_input_json = '../DATA/game/v3/data.json'
         opt.gr_input_h5 = '../DATA/game/v3/data.h5'
@@ -138,7 +155,7 @@ local loaderCommunication, loaderGrounding, game_size, feat_size, vocab_size
  -- Create the Data Loader instance for the Communication
 -------------------------------------------------------------------------------
 if opt.grounding ~= 1 then
-	loaderCommunication = DataLoaderCommunication{h5_file = opt.comm_input_h5, json_file = opt.comm_input_json,  feat_size = opt.comm_feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size, h5_images_file = opt.comm_input_h5_images, game_size = opt.comm_game_size, embeddings_file_S = opt.embeddings_file_S, embeddings_file_R = opt.embeddings_file_R, embedding_size_S = opt.embedding_size_S, embedding_size_R = opt.embedding_size_R, noise = opt.comm_noise}
+	loaderCommunication = DataLoaderCommunication{h5_file = opt.comm_input_h5, json_file = opt.comm_input_json,  feat_size = opt.comm_feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size, h5_images_file = opt.comm_input_h5_images, h5_images_file_r = opt.comm_input_h5_images_r, game_size = opt.comm_game_size, embeddings_file_S = opt.embeddings_file_S, embeddings_file_R = opt.embeddings_file_R, embedding_size_S = opt.embedding_size_S, embedding_size_R = opt.embedding_size_R, noise = opt.comm_noise}
 	game_size = loaderCommunication:getGameSize()
 	feat_size = loaderCommunication:getFeatSize()
 	vocab_size = loaderCommunication:getVocabSize()
@@ -186,6 +203,7 @@ if opt.grounding < 1 then
 		local nodes = protos.communication.players.sender:listModules()[1]['forwardnodes']
 		for _,node in ipairs(nodes) do
 			if node.data.annotations.name=='embeddings_S' then
+				print("Tralalala")
 				node.data.module.weight = loaderCommunication:getEmbeddings("sender").matrix:clone()
 			end
 		end
@@ -283,17 +301,20 @@ local function eval_split(split, evalopt)
 			end
 		end]]--
 		
+	
 		--prepage gold data	
 		local gold = data.referent_position
     	
 		--forward loss
 		local loss = protos.communication.criterion:forward(outputs, gold)
-		for k=1,opt.batch_size do
-			if outputs[1][k][gold[k][1]]==1 then
-				acc = acc+1
-			end
-		end
 
+		for k=1,opt.batch_size do
+                        if outputs[1][k][gold[k][1]]==1 then
+                                acc = acc+1
+                        end
+		end
+		
+			
 	 	--average loss
 		loss_sum = loss_sum + loss
 		loss_evals = loss_evals + 1
@@ -309,6 +330,28 @@ local function eval_split(split, evalopt)
 		if loss_evals % 10 == 0 then collectgarbage() end	
 		if data.bounds.wrapped then break end -- the split ran out of data, lets break out
 		if n >= val_images_use then break end -- we've used enough images	
+
+		if opt.print_info==1 then
+			local correct_answers = torch.CudaTensor(1,opt.batch_size):fill(0)
+			local correct_attributes = torch.CudaTensor(opt.batch_size, outputs[3]:size(2)):fill(0)
+			for k=1,opt.batch_size do
+				if outputs[1][k][gold[k][1]]==1 then
+					correct_answers[1][k] = 1
+				end
+				for a=1,outputs[3]:size(2) do
+					if outputs[3][k][a] == 1 and correct_answers[1][k] == 1 then
+						correct_attributes[k][a] = correct_attributes[k][a] +1
+					end
+				end
+
+			end
+			to_print = torch.random(100)
+			if to_print%10 == 0 then
+                		print(torch.cdiv(torch.sum(correct_attributes,1),torch.sum(outputs[3],1)))
+				print(torch.sum(outputs[3],1))
+        		end
+		end
+
 	end
 
 	return loss_sum/loss_evals, acc/(loss_evals*opt.batch_size)
@@ -424,84 +467,35 @@ end
 -------------------------------------------------------------------------------
 -- Main loop
 -------------------------------------------------------------------------------
-local gr_loss=0
 local optim_state = {}
 local gr_optim_state = {}
 local val_acc_history = {}
 local loss_history = {}
 local best_score=nil
 local checkpoint_path = opt.checkpoint_path .. 'cp_id' .. opt.id ..'.cp'
+local comm_loss=0
+local gr_loss=0
+local loss=0
+local acc=0
 
-
+DO = nn.Dropout(0.5):cuda()
 
 while true do  
 
-	local losses
-	-- get grads
-	local gr_prop, comm_prop, gr_embed, comm_embed
-	if opt.grounding > 0 and opt.grounding <1 then
-		
-		local nodes = protos.communication.players.sender:listModules()[1]['forwardnodes']
-                for _,node in ipairs(nodes) do
-                        if node.data.annotations.name=='property' then
-                                comm_prop = node.data.module.weight 
-                        end
-			if node.data.annotations.name=='embeddings_S' then
-                                comm_embed = node.data.module.weight
-                        end
-                end
-		local nodes = protos.grounding.players:listModules()[1]['forwardnodes']
-                for _,node in ipairs(nodes) do
-                        if node.data.annotations.name=='property' then
-                                gr_prop = node.data.module.weight 
-                        end
-			if node.data.annotations.name=='embeddings_S' then
-                                gr_embed = node.data.module.weight
-                        end
-                end
-	end
-
+		-- decide what task to perform
 	local coin = torch.uniform()
 	if coin < opt.grounding then
-		
-		if opt.grounding ~= 1 then
-			gr_embed = comm_embed:clone()
-			gr_prop = comm_prop:clone()
-		end
-
 		gr_loss = groundingLoss()
-
-		local nodes = protos.grounding.players:listModules()[1]['forwardnodes']
-                for _,node in ipairs(nodes) do
-                        if node.data.annotations.name=='fixed' then
-                                node.data.module.gradWeight:fill(0)
-                        end
-                end
-		
 	else
-		if opt.grounding ~= 0 then
-			comm_embed = gr_embed:clone()
-			comm_prop = gr_prop:clone()
-		end
-	
-		losses = communicationLoss()
-	
-		local nodes = protos.communication.players.sender:listModules()[1]['forwardnodes']
-                for _,node in ipairs(nodes) do
-                        if node.data.annotations.name=='fixed' then
-                                node.data.module.gradWeight:fill(0)
-                        end
-                end
+		comm_loss = communicationLoss()
 	end
 
-	local loss = 0
-	local acc = 0
 
 	if iter % opt.print_every == 0  and opt.grounding~=1 then
 		--evaluate val performance 
 		loss,acc = eval_split('val', {val_images_use = opt.val_images_use, verbose=opt.verbose})
 		val_acc_history[iter] = acc
-		loss_history[iter] = losses
+		loss_history[iter] = comm_loss
 	end
 
  	-- save checkpoint once in a while (or on final iteration)
@@ -517,15 +511,15 @@ while true do
 
     		-- write the full model checkpoint as well if we did better than ever
     		local current_score = loss
-			local save_protos = {}
-			if opt.grounding~=1 then
-				save_protos.communication = protos.communication.players -- these are shared clones, and point to correct param storage
-			end
-			if opt.grounding~= 0 then
-				save_protos.grounding = protos.grounding.players
-			end
-			checkpoint.protos = save_protos
-			torch.save(checkpoint_path .. '.t7', checkpoint)
+		local save_protos = {}
+		if opt.grounding~=1 then
+			save_protos.communication = protos.communication.players -- these are shared clones, and point to correct param storage
+		end
+		if opt.grounding~= 0 then
+			save_protos.grounding = protos.grounding.players
+		end
+		checkpoint.protos = save_protos
+		torch.save(checkpoint_path .. '.t7', checkpoint)
 	end
 	-- decay the learning rate
 	local learning_rate = opt.learning_rate
@@ -551,6 +545,7 @@ while true do
 
 	-- perform a parameter update
 	if coin > opt.grounding then
+		local nodes = protos.communication.players.sender:listModules()[1]['forwardnodes']
 		if opt.optim == 'rmsprop' then
 			rmsprop(params, grad_params, learning_rate, opt.optim_alpha, opt.optim_epsilon, optim_state)
 		elseif opt.optim == 'adagrad' then
@@ -566,6 +561,27 @@ while true do
 	 	else
  			error('bad option opt.optim')
  		end
+		-- set weights of grounding to equal communication	
+		if opt.grounding ~= 0 then
+			local nodes = protos.communication.players.sender:listModules()[1]['forwardnodes']
+			for _,node in ipairs(nodes) do
+                        	if node.data.annotations.name=='embeddings_S' then
+					comm_embed = node.data.module.weight:clone()
+                        	end
+                        	if node.data.annotations.name=='property' then
+                                	comm_prop = node.data.module.weight:clone()
+                        	end
+			end
+			local nodes = protos.grounding.players:listModules()[1]['forwardnodes']
+			for _,node in ipairs(nodes) do
+                                if node.data.annotations.name=='embeddings_S' then
+                                        node.data.module.weight:copy(comm_embed)
+                                end
+                                if node.data.annotations.name=='property' then
+                                        node.data.module.weight:copy(comm_prop)
+                                end
+                        end
+		end
 	else
 		if opt.optim == 'rmsprop' then
                         rmsprop(gr_params, gr_grad_params, learning_rate, opt.optim_alpha, opt.optim_epsilon, gr_optim_state)
@@ -582,7 +598,27 @@ while true do
                 else
                         error('bad option opt.optim')
                 end
-
+		-- set weights of communication to equal grounding
+                if opt.grounding ~=1 then
+                        local nodes = protos.grounding.players:listModules()[1]['forwardnodes']
+                        for _,node in ipairs(nodes) do
+                                if node.data.annotations.name=='embeddings_S' then
+                                        gr_embed = node.data.module.weight:clone()
+                                end
+                                if node.data.annotations.name=='property' then   
+                                        gr_prop = node.data.module.weight:clone()
+                                end
+                        end
+                        local nodes = protos.communication.players.sender:listModules()[1]['forwardnodes']
+                        for _,node in ipairs(nodes) do
+                                if node.data.annotations.name=='embeddings_S' then
+                                        node.data.module.weight:copy(gr_embed)
+                                end
+                                if node.data.annotations.name=='property' then
+                                        node.data.module.weight:copy(gr_prop)
+                                end
+                        end
+                end
 	end
  	-- stopping criterions
  	iter = iter + 1
