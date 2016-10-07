@@ -63,7 +63,7 @@ function DataLoader:__init(opt)
         print(self.images_size)
   	assert(#self.images_size == 2, '/images should be a 2D tensor')
 	local feat_size 
-	self.num_images = self.images_size[1]
+	self.num_images = self.images_size[1] -1
 	feat_size = self.images_size[2]
 	
 	if opt.feat_size == -1 then

@@ -257,7 +257,6 @@ for i=1,loaderCommunication:getVocabSize() do
 	idx[1][i] = i
 end
 if opt.gpuid >=0 then
-	print("here")
 	idx = idx:cuda()
 end
 -------------------------------------------------------------------------------
@@ -352,8 +351,6 @@ local function eval_split(split, evalopt)
 		end
 
 	end
-	print(acc)
-	print(n)
 
 	return loss_sum/loss_evals, acc/(loss_evals*opt.batch_size)
 
@@ -499,7 +496,6 @@ while true do
 	end
  	-- save checkpoint once in a while (or on final iteration)
  	if (iter % opt.save_checkpoint_every == 0 or iter == opt.max_iters) then
-		print("Saving")
     		-- write a (thin) json report
     		local checkpoint = {}
     		checkpoint.opt = opt
