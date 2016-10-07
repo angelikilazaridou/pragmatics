@@ -31,6 +31,7 @@ cmd:option('-val_images_use', 1000, 'how many images to use when periodically ev
 cmd:option('-seed', 123, 'random number generator seed to use')
 cmd:option('-gpuid', 0, 'which gpu to use. -1 = use CPU')
 cmd:option('-split','val','What split to use to evaluate')
+cmd:option('-print_info',0,'Whether to print info')
 cmd:text()
 
 
@@ -57,7 +58,7 @@ end
 if opt.game_session == 'v1' then
         opt.input_json = '../DATA/game/v1/data.json'
         opt.input_h5 = '../DATA/game/v1/data.h5'
-        opt.input_h5_images = '..DATA/game/v1/vectors_transposed.h5'
+        opt.input_h5_images = '../DATA/game/v1/vectors_transposed.h5'
 elseif opt.game_session == 'v2' then
         opt.input_json = '../DATA/game/v2/data.json.new'
         opt.input_h5 = '../DATA/game/v2/data.h5.new'
@@ -65,7 +66,7 @@ elseif opt.game_session == 'v2' then
 elseif opt.game_session == 'v3' then
         opt.input_json = '../DATA/game/v3/data.json'
         opt.input_h5 = '../DATA/game/v3/data.h5'
-        opt.input_h5_images = '..DATA/game/v3/toy_images.h5'
+        opt.input_h5_images = '../DATA/game/v3/toy_images.h5'
 else
         print('No specific game. Data will be given by user')
 end
@@ -80,7 +81,9 @@ print(opt)
 -- Initialize the network
 -------------------------------------------------------------------------------
 local checkpoint = torch.load(opt.model)
-local players = checkpoint.protos.communication
+local protos ={}
+protos.communication = {}
+protos.communication.players = checkpoint.protos
 
 
 -------------------------------------------------------------------------------
@@ -90,39 +93,25 @@ local loader = DataLoaderCommunication{h5_file = opt.input_h5, json_file = opt.i
 
 opt.vocab_size = checkpoint.opt.vocab_size
 
-collectgarbage() 
 
-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
 -- Validation evaluation
 -------------------------------------------------------------------------------
 local function eval_split(split, evalopt)
-  local verbose = utils.getopt(evalopt, 'verbose', true)
-  local val_images_use = utils.getopt(evalopt, 'val_images_use', 1000)
+	local verbose = utils.getopt(evalopt, 'verbose', true)
+	local val_images_use = utils.getopt(evalopt, 'val_images_use', true)
 
-
-  players:evaluate() 
-  loader:resetIterator(split) -- rewind iteator back to first datapoint in the split
+	protos.communication.players:evaluate()
   	
-  local n = 0
-  local loss_sum = 0
-  local loss_evals = 0
-  local acc = 0
-
-  --keep the count of predicted attributes  
-  local predicted = torch.DoubleTensor(opt.vocab_size):fill(0)
- 
-  local matrix = torch.DoubleTensor(loader:getRealVocabSize(),opt.vocab_size):fill(0)
- 
-  referent_attrs = {}
-  context_attrs = {}
-  keyset = {} 
-	
+	local n = 0
+	local loss_sum = 0
+	local loss_evals = 0
+	local acc = 0
 	while true do
-		
-  		-- get batch of data  
-    		local data = loader:getBatch{batch_size = opt.batch_size, split = split}
 
-		--print(data.images[1])
+		-- get batch of data  
+		local data = loader:getBatch{batch_size = opt.batch_size, split = 'val'}
+
 		local inputsS = {}
 		--insert images
 		for i=1,#data.images do
@@ -132,71 +121,73 @@ local function eval_split(split, evalopt)
 		local inputsR = {}
 		for i=1,#data.refs do
 			table.insert(inputsR, data.refs[i])
-	    	end 
-   	 	--forward model
-    		local outputs = players:forward({inputsS, inputsR, 10})
-  
-		print(outputs[3]) 
-    		--prepage gold data
-    		local gold = data.referent_position
+	    	end
     
-	
-    		for k=1,opt.batch_size do
-			--accuracy
-      			if outputs[1][k][gold[k][1]]==1 then
-        			acc = acc+1
-      			end
-			
-			local predicted_attribute
-			--count predicted attributes
-			for a=1,opt.vocab_size do
-				if outputs[3][k][a] == 1 then
-					predicted_attribute = a
-					predicted[a] = predicted[a]+1
-				
-					if referent_attrs[data.infos[k].bb1] == nil then
-						referent_attrs[data.infos[k].bb1] = torch.DoubleTensor(opt.vocab_size):fill(0)
-						context_attrs[data.infos[k].bb1] = torch.DoubleTensor(opt.vocab_size):fill(0)
-						keyset[#keyset+1]=data.infos[k].bb1
+		--forward model
+		local outputs = protos.communication.players:forward({inputsS, inputsR, opt.temperature})
 
-					end
-					if context_attrs[data.infos[k].bb2] == nil then
-                                                referent_attrs[data.infos[k].bb2] = torch.DoubleTensor(opt.vocab_size):fill(0)
-                                                context_attrs[data.infos[k].bb2] = torch.DoubleTensor(opt.vocab_size):fill(0)
-						keyset[#keyset+1]=data.infos[k].bb2
-                                        end
-					
-					referent_attrs[data.infos[k].bb1][predicted_attribute] = referent_attrs[data.infos[k].bb1][predicted_attribute]+1
-					context_attrs[data.infos[k].bb2][predicted_attribute]  = context_attrs[data.infos[k].bb2][predicted_attribute]+1
-					--print(string.format('%s -- %s -- %d',data.infos[k].bb1,data.infos[k].bb2,a))
-					break
+		--[[for b=1,data.discriminativeness:size(1) do
+			local k = 30
+			if data.discriminativeness[b][k]==1 then
+				print(torch.sum(torch.cmul(outputs[3][b],idx)))
+			end
+		end]]--
+		
+	
+		--prepage gold data	
+		local gold = data.referent_position
+    	
+		
+		for k=1,opt.batch_size do
+                        if outputs[1][k][gold[k][1]]==1 then
+                                acc = acc+1
+                        end
+		end
+		
+			
+	
+		-- if we wrapped around the split or used up val imgs budget then bail
+		local ix0 = data.bounds.it_pos_now
+		local ix1 = math.min(data.bounds.it_max, val_images_use)	
+
+		loss_evals = loss_evals + 1
+    		n = n+opt.batch_size
+
+		if loss_evals % 10 == 0 then collectgarbage() end	
+		if n >= val_images_use then break end -- we've used enough images	
+
+		if opt.print_info==1 then
+			local correct_answers = torch.CudaTensor(1,opt.batch_size):fill(0)
+			local correct_attributes = torch.CudaTensor(opt.batch_size, outputs[3]:size(2)):fill(0)
+			for k=1,opt.batch_size do
+				if outputs[1][k][gold[k][1]]==1 then
+					correct_answers[1][k] = 1
 				end
-			end
-			--assign attributes to features
-			for j=1,matrix:size(1) do
-				if data.discriminativeness[k][j] == 1 then
-					matrix[j][predicted_attribute] = matrix[j][predicted_attribute] +1
-				end	
-			end
-			
-    		end
+				for a=1,outputs[3]:size(2) do
+					if outputs[3][k][a] == 1 and correct_answers[1][k] == 1 then
+						correct_attributes[k][a] = correct_attributes[k][a] +1
+					end
+				end
 
- 		n = n+opt.batch_size
-		loss_evals = loss_evals+1
-	
-    		-- if we wrapped around the split or used up val imgs budget then bail
-    		local ix0 = data.bounds.it_pos_now
-    		local ix1 = math.min(data.bounds.it_max, val_images_use)
+			end
+			to_print = torch.random(100)
+			if to_print%10 == 0 then
+                		print(torch.cdiv(torch.sum(correct_attributes,1),torch.sum(outputs[3],1)))
+				print(torch.sum(outputs[3],1))
+        		end
+		end
 
-    
-    		if data.bounds.wrapped then break end -- the split ran out of data, lets break out
-    		if n >= val_images_use then break end -- we've used enough images
 	end
 
-       return acc/(loss_evals * opt.batch_size),predicted, matrix, vocab
+	return loss_sum/loss_evals, acc/n
 
 end
 
-acc, predicted, matrix,vocab = eval_split(opt.split, {val_images_use = opt.val_images_use, verbose=opt.verbose})
+loss,acc = eval_split('val', {val_images_use = opt.val_images_use, verbose=opt.verbose})
+
+print(acc)
+loss,acc = eval_split('val', {val_images_use = opt.val_images_use, verbose=opt.verbose})
+print(acc)
+loss,acc = eval_split('val', {val_images_use = opt.val_images_use, verbose=opt.verbose})
 print(acc)
 

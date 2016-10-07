@@ -191,41 +191,21 @@ function DataLoader:getBatch(opt)
    		self.iterators[split] = ri_next
    		ix = split_ix[ri]
    		assert(ix ~= nil, 'bug: split ' .. split .. ' was accessed out of bounds with ' .. ri)
-		local coin  = 1
 		
-		if split == "train" then
-		 	coin = torch.random(2)
-		end		
-	
 		local indices = torch.randperm(self.game_size)
 		--[[for k=1,self.game_size do
 			indices[k] = k
 		end--]]
 	    	label_batch[{ {i,i} }] = indices[1]	
 
+		local info_struct = {}
 		local bb
 		--image representations
 		for ii=1,self.game_size do
+		
+			bb = torch.random(self.num_images)
+			table.insert(info_struct,bb)
 			
-			if split == "train" or split == "val"  then
-				bb = torch.random(self.num_images)
-			else
-				if coin == 1 then
-					if ii==1 then
-						bb = self.info.refs[ix].bb1_i
-					else
-						bb = self.info.refs[ix].bb2_i
-					end
-				else
-					if ii==2 then
-                                                bb = self.info.refs[ix].bb1_i
-                                        else
-                                                bb = self.info.refs[ix].bb2_i
-                                        end
-
-				end
-			end
-
 			-- P1		
 			local img = self.h5_images_file:read('/images'):partial({bb,bb}, {1,self.feat_size})
 			--normalize to unit norm
@@ -237,6 +217,7 @@ function DataLoader:getBatch(opt)
                         refs[indices[ii]][i] = img/torch.norm(img)
                         if self.noise == 1 then
                         	refs[indices[ii]][i] = refs[indices[ii]][i] + torch.rand(1,self.feat_size)
+				print("here")
                         end
 
 		end
@@ -246,9 +227,6 @@ function DataLoader:getBatch(opt)
 		i = i+1	
 
 		-- meta
-		local info_struct = {}
-		info_struct.bb1 = self.info.refs[ix].bb1
-		info_struct.bb2 = self.info.refs[ix].bb2
 		table.insert(infos,info_struct)
 	end
 
@@ -269,8 +247,8 @@ function DataLoader:getBatch(opt)
                 data.referent_position = label_batch:cuda():contiguous() -- note: make label sequences go down as columns
 		data.discriminativeness = discriminativeness:cuda()
 	end
-		data.bounds = {it_pos_now = self.iterators[split], it_max = #split_ix, wrapped = wrapped}
-		data.infos = infos
+	data.bounds = {it_pos_now = self.iterators[split], it_max = #split_ix, wrapped = wrapped}
+	data.infos = infos
   	return data
 end
 

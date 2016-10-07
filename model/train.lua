@@ -76,7 +76,7 @@ cmd:option('-seed', 123, 'random number generator seed to use')
 cmd:option('-gpuid', 0, 'which gpu to use. -1 = use CPU')
 cmd:option('-verbose',false,'How much info to give')
 cmd:option('-print_every',100,'Print some statistics')
-cmd:option('-print_info','0','Print some information for inspection while training')
+cmd:option('-print_info',0,'Print some information for inspection while training')
 cmd:text()
 
 
@@ -277,18 +277,17 @@ local function eval_split(split, evalopt)
 	while true do
 
 		-- get batch of data  
-		local data = loaderCommunication:getBatch{batch_size = opt.batch_size, split = 'val'}
-
-
+		local d = loaderCommunication:getBatch{batch_size = opt.batch_size, split = 'val'}
+		
 		local inputsS = {}
 		--insert images
-		for i=1,#data.images do
-			table.insert(inputsS,data.images[i])
+		for i=1,#d.images do
+			table.insert(inputsS,d.images[i])
 		end
 		--insert the shuffled refs for P2 	
 		local inputsR = {}
-		for i=1,#data.refs do
-			table.insert(inputsR, data.refs[i])
+		for i=1,#d.refs do
+			table.insert(inputsR, d.refs[i])
 	    	end
     
 		--forward model
@@ -303,7 +302,7 @@ local function eval_split(split, evalopt)
 		
 	
 		--prepage gold data	
-		local gold = data.referent_position
+		local gold = d.referent_position
     	
 		--forward loss
 		local loss = protos.communication.criterion:forward(outputs, gold)
@@ -321,14 +320,14 @@ local function eval_split(split, evalopt)
     		n = n+opt.batch_size
 	
 		-- if we wrapped around the split or used up val imgs budget then bail
-		local ix0 = data.bounds.it_pos_now
-		local ix1 = math.min(data.bounds.it_max, val_images_use)	
+		local ix0 = d.bounds.it_pos_now
+		local ix1 = math.min(d.bounds.it_max, val_images_use)	
 		if verbose then
 			print(string.format('evaluating validation performance... %d/%d (%f)', ix0-1, ix1, loss))
 		end	
 
 		if loss_evals % 10 == 0 then collectgarbage() end	
-		if data.bounds.wrapped then break end -- the split ran out of data, lets break out
+		if d.bounds.wrapped then break end -- the split ran out of data, lets break out
 		if n >= val_images_use then break end -- we've used enough images	
 
 		if opt.print_info==1 then
@@ -353,6 +352,8 @@ local function eval_split(split, evalopt)
 		end
 
 	end
+	print(acc)
+	print(n)
 
 	return loss_sum/loss_evals, acc/(loss_evals*opt.batch_size)
 
@@ -478,11 +479,10 @@ local gr_loss=0
 local loss=0
 local acc=0
 
-DO = nn.Dropout(0.5):cuda()
 
 while true do  
 
-		-- decide what task to perform
+	-- decide what task to perform
 	local coin = torch.uniform()
 	if coin < opt.grounding then
 		gr_loss = groundingLoss()
@@ -497,9 +497,9 @@ while true do
 		val_acc_history[iter] = acc
 		loss_history[iter] = comm_loss
 	end
-
  	-- save checkpoint once in a while (or on final iteration)
  	if (iter % opt.save_checkpoint_every == 0 or iter == opt.max_iters) then
+		print("Saving")
     		-- write a (thin) json report
     		local checkpoint = {}
     		checkpoint.opt = opt
@@ -508,18 +508,20 @@ while true do
     		checkpoint.val_acc_history = val_acc_history
 
     		utils.write_json(checkpoint_path .. '.json', checkpoint)
+		
+		protos.communication.players:clearState()
 
     		-- write the full model checkpoint as well if we did better than ever
     		local current_score = loss
 		local save_protos = {}
 		if opt.grounding~=1 then
-			save_protos.communication = protos.communication.players -- these are shared clones, and point to correct param storage
+			save_protos = protos.communication.players 
 		end
 		if opt.grounding~= 0 then
 			save_protos.grounding = protos.grounding.players
 		end
 		checkpoint.protos = save_protos
-		torch.save(checkpoint_path .. '.t7', checkpoint)
+		torch.save(checkpoint_path ..'.'..iter.. '.t7', checkpoint)
 	end
 	-- decay the learning rate
 	local learning_rate = opt.learning_rate
@@ -539,7 +541,7 @@ while true do
 
 	if iter % opt.print_every == 0 then
 		--print(string.format("%d, grad norm = %6.4e, param norm = %6.4e, grad/param norm = %6.4e, lr = %6.4e", iter, grad_params:norm(), params:norm(), grad_params:norm() / params:norm(), learning_rate))
- 		print(string.format("%d @ %f @ %f @ %f",iter, acc, gr_loss, opt.temperature))
+ 		print(string.format("%d @ %f @ %f @ %f @ %f",iter, acc, comm_loss, gr_loss, opt.temperature))
  	 end
 	
 
