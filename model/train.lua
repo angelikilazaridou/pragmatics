@@ -517,7 +517,7 @@ while true do
 			save_protos.grounding = protos.grounding.players
 		end
 		checkpoint.protos = save_protos
-		torch.save(checkpoint_path ..'.'..iter.. '.t7', checkpoint)
+		torch.save(checkpoint_path ..'.t7', checkpoint)
 	end
 	-- decay the learning rate
 	local learning_rate = opt.learning_rate
