@@ -84,7 +84,7 @@ cmd:text()
 -- Basic Torch initializations
 -------------------------------------------------------------------------------
 local opt = cmd:parse(arg)
-opt.id = '_sender@'..opt.comm_sender..'_g@'..opt.comm_game..'_gs@'..opt.comm_game_size..'_t@'..opt.temperature..'_v@'..opt.comm_viewpoints..'_l@'..opt.comm_layer..'_g@'..opt.grounding..'_vocab@'..opt.vocab_size..'_property@'..opt.property_size..'_embR@'..opt.embedding_size_R..'_hidden@'..opt.hidden_size
+opt.id = '_sender@'..opt.comm_sender..'_g@'..opt.comm_game..'_gs@'..opt.comm_game_size..'_t@'..opt.temperature..'_v@'..opt.comm_viewpoints..'_n@'..opt.comm_noise..'_l@'..opt.comm_layer..'_g@'..opt.grounding..'_vocab@'..opt.vocab_size..'_property@'..opt.property_size..'_embR@'..opt.embedding_size_R..'_hidden@'..opt.hidden_size
 
 
 torch.manualSeed(opt.seed)
