@@ -23,29 +23,32 @@ function player1.model(game_size, feat_size, vocab_size, embedding_size, propert
 		table.insert(all_prop_vecs,property_vec)
 	end
 
-	local filters = 15
-	local dh = 5
-	local dpool = 10
+	local filters = 20
+	local filters2 = 1
+	local dh = 1
+	local dpool = 5
 	
 	-- in: table -> game_size x batch_size x feat_size 
 	-- out: tensor -> batch_size x game_size x property_size 
 	local matrix_vecs = nn.JoinTable(2)(all_prop_vecs)
 
-	--matrix_vecs = nn.ReLU()(matrix_vecs)	
+	--matrix_vecs = nn.Sigmoid()(matrix_vecs)	
 	-- convolve input
 
 	-- in: table -> game_size x batch_size x feat_size
 	-- out: batch_size x filters x (property_size-h)+1 x 1
 	local conv1 = nn.SpatialConvolution(game_size,filters,1,dh)(nn.Reshape(game_size, property_size, 1)(matrix_vecs))
- 	conv1 = nn.ReLU()(conv1)
+ 	conv1 = nn.Sigmoid()(conv1)
 	-- in: batch_size x filters x (property_size-h)+1 x 1
 	-- out: batch_size x filters x floor(((property_size-dh)+1)/dpool) x1
 	conv1 = nn.SpatialMaxPooling(1,dpool)(conv1)
-	
+	conv1 = nn.SpatialConvolution(filters, filters2,1, dh)(conv1)
+        conv1 = nn.SpatialMaxPooling(1,dpool)(conv1)
+	conv1 = nn.Sigmoid()(conv1)	
 	--fully connected to communication layer
-	conv1 = nn.View(filters * math.floor(((property_size-dh)+1)/dpool))(conv1)
+	conv1 = nn.View(filters2 * math.floor(((math.floor(((property_size-dh)+1)/dpool)-dh)+1)/dpool))(conv1)
 	--conv1 = nn.Dropout(0.5)(conv1)
-	local fc = nn.LinearNB(filters * math.floor(((property_size-dh)+1)/dpool), embedding_size)(conv1)
+	local fc = nn.LinearNB(filters2 *math.floor(((math.floor(((property_size-dh)+1)/dpool)-dh)+1)/dpool), embedding_size)(conv1)
 	fc = nn.Sigmoid()(fc)
 
 	local scores = nn.LinearNB(embedding_size, vocab_size)(fc):annotate{name='embeddings_S'}

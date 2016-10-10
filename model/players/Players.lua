@@ -1,7 +1,6 @@
 require 'dpnn'
 require 'nn'
 
-local sender = require 'players.Sender_old'
 local receiver = require 'players.Receiver_old'
 
 local players, parent =  torch.class('nn.Players', 'nn.Module')
@@ -20,7 +19,7 @@ function players:__init(opt)
 
 	--defining the two players
 	if opt.comm_sender == 'sender_no_embeddings' then
-		local s = require 'players.Sender_old_noemb'
+		local s = require 'players.Sender_old_nemb'
 		self.sender = s.model(opt.comm_game_size, opt.comm_feat_size, opt.vocab_size, opt.hidden_size, opt.dropout, opt.gpuid)
 	elseif opt.comm_sender == 'sender_simple' then
 		local s = require 'players.Sender_old'

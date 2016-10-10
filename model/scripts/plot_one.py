@@ -39,7 +39,7 @@ all_accs =  interp1d(x,accs)(xnew)
 a,  = plt.plot(xnew, all_accs,  linewidth=2)
 plt.xlabel('# iterations', fontsize=20)
 plt.ylabel('communication success', fontsize=20)
-plt.savefig(dataset+'_ALL.pdf')
+plt.savefig(dataset+'_ALL.png')
 plt.clf()
 
 

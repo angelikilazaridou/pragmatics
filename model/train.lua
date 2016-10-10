@@ -26,7 +26,7 @@ cmd:option('-comm_input_json','COMMUNICATION: ../DATA/game/v3/data.json','path t
 cmd:option('-comm_input_h5_images','COMMUNICATION: ..DATA/game/v3/toy_images.h5','path to the h5 of the referit bounding boxes')
 cmd:option('-comm_feat_size',-1,'COMMUNICATION: The number of image features')
 cmd:option('-comm_game_size',2,'COMMUNICATION: Number of images in the game')
-cmd:option('-comm_noise',0,'COMMUNICATION: Add noise in representation of Receiver')
+cmd:option('-comm_noise',0,'COMMUNICATION: Add noise in representation of Receiver in terms of using different images')
 cmd:option('-comm_sender','sender_simple','Which sender to use [sender_no_embeddings, *sender_simple*, sender_convnet')
 cmd:option('-comm_layer','probs','Which layer to use as input to sender [probs | fc]')
 cmd:option('-comm_viewpoints',1,'Whether to use similar viewpoints or not [1=same layer, 0=different layer]')
@@ -68,7 +68,7 @@ cmd:option('-rewardScale',1,'Scaling alpha of the reward')
 -- Evaluation/Checkpointing
 cmd:option('-val_images_use', 1000, 'how many images to use when periodically evaluating the validation loss? (-1 = all)')
 cmd:option('-save_checkpoint_every', 3500, 'how often to save a model checkpoint?')
-cmd:option('-checkpoint_path', 'grounding/', 'folder to save checkpoints into (empty = this folder)')
+cmd:option('-checkpoint_path', 'grounding/RL', 'folder to save checkpoints into (empty = this folder)')
 cmd:option('-losses_log_every', 1, 'How often do we snapshot losses, for inclusion in the progress dump? (0 = disable)')
 -- misc
 cmd:option('-id', '', 'an id identifying this run/job. used in cross-val and appended when writing progress files')
@@ -84,7 +84,7 @@ cmd:text()
 -- Basic Torch initializations
 -------------------------------------------------------------------------------
 local opt = cmd:parse(arg)
-opt.id = '_g@'..opt.comm_game..'_t@'..opt.temperature..'_v@'..opt.comm_viewpoints..'_l@'..opt.comm_layer..'_g@'..opt.grounding
+opt.id = '_sender@'..opt.comm_sender..'_g@'..opt.comm_game..'_gs@'..opt.comm_game_size..'_t@'..opt.temperature..'_v@'..opt.comm_viewpoints..'_l@'..opt.comm_layer..'_g@'..opt.grounding..'_vocab@'..opt.vocab_size..'_property@'..opt.property_size..'_embR@'..opt.embedding_size_R..'_hidden@'..opt.hidden_size
 
 
 torch.manualSeed(opt.seed)
@@ -101,6 +101,12 @@ end
 ------------------------------------------------------------------------------
 -- Input data
 ------------------------------------------------------------------------------
+
+if opt.layer == "probs" then
+	opt.norm = 0
+else
+	opt.norm = 1
+end
 
 if opt.comm_game == 'v1' then
 	opt.comm_input_json = '../DATA/game/v1/data.json'
@@ -155,7 +161,7 @@ local loaderCommunication, loaderGrounding, game_size, feat_size, vocab_size
  -- Create the Data Loader instance for the Communication
 -------------------------------------------------------------------------------
 if opt.grounding ~= 1 then
-	loaderCommunication = DataLoaderCommunication{h5_file = opt.comm_input_h5, json_file = opt.comm_input_json,  feat_size = opt.comm_feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size, h5_images_file = opt.comm_input_h5_images, h5_images_file_r = opt.comm_input_h5_images_r, game_size = opt.comm_game_size, embeddings_file_S = opt.embeddings_file_S, embeddings_file_R = opt.embeddings_file_R, embedding_size_S = opt.embedding_size_S, embedding_size_R = opt.embedding_size_R, noise = opt.comm_noise}
+	loaderCommunication = DataLoaderCommunication{h5_file = opt.comm_input_h5, json_file = opt.comm_input_json,  feat_size = opt.comm_feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size, h5_images_file = opt.comm_input_h5_images, h5_images_file_r = opt.comm_input_h5_images_r, game_size = opt.comm_game_size, embeddings_file_S = opt.embeddings_file_S, embeddings_file_R = opt.embeddings_file_R, embedding_size_S = opt.embedding_size_S, embedding_size_R = opt.embedding_size_R, noise = opt.comm_noise, opt.norm}
 	game_size = loaderCommunication:getGameSize()
 	feat_size = loaderCommunication:getFeatSize()
 	vocab_size = loaderCommunication:getVocabSize()
@@ -267,7 +273,6 @@ local function eval_split(split, evalopt)
 	local val_images_use = utils.getopt(evalopt, 'val_images_use', true)
 
 	protos.communication.players:evaluate() 
-	loaderCommunication:resetIterator(split) -- rewind iteator back to first datapoint in the split
   	
 	local n = 0
 	local loss_sum = 0
@@ -318,15 +323,8 @@ local function eval_split(split, evalopt)
 		loss_evals = loss_evals + 1
     		n = n+opt.batch_size
 	
-		-- if we wrapped around the split or used up val imgs budget then bail
-		local ix0 = d.bounds.it_pos_now
-		local ix1 = math.min(d.bounds.it_max, val_images_use)	
-		if verbose then
-			print(string.format('evaluating validation performance... %d/%d (%f)', ix0-1, ix1, loss))
-		end	
 
 		if loss_evals % 10 == 0 then collectgarbage() end	
-		if d.bounds.wrapped then break end -- the split ran out of data, lets break out
 		if n >= val_images_use then break end -- we've used enough images	
 
 		if opt.print_info==1 then
