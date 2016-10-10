@@ -68,7 +68,7 @@ cmd:option('-rewardScale',1,'Scaling alpha of the reward')
 -- Evaluation/Checkpointing
 cmd:option('-val_images_use', 1000, 'how many images to use when periodically evaluating the validation loss? (-1 = all)')
 cmd:option('-save_checkpoint_every', 3500, 'how often to save a model checkpoint?')
-cmd:option('-checkpoint_path', 'grounding/RL', 'folder to save checkpoints into (empty = this folder)')
+cmd:option('-checkpoint_path', 'grounding/RL/', 'folder to save checkpoints into (empty = this folder)')
 cmd:option('-losses_log_every', 1, 'How often do we snapshot losses, for inclusion in the progress dump? (0 = disable)')
 -- misc
 cmd:option('-id', '', 'an id identifying this run/job. used in cross-val and appended when writing progress files')
