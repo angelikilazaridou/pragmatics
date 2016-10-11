@@ -6,7 +6,7 @@ local DataLoader = torch.class('DataLoaderCommunication')
 function DataLoader:__init(opt)
   
 	-- load the json file which contains additional information about the dataset
-	print('COMMUNICATION: DataLoader loading json file: ', opt.json_file)
+	--print('COMMUNICATION: DataLoader loading json file: ', opt.json_file)
 	self.info = utils.read_json(opt.json_file)
 	-- TODO: in case we load word embeddings, make sure to find correspondance with old vocabulary
 	self.vocab = self.info.ix_to_word
@@ -49,19 +49,19 @@ function DataLoader:__init(opt)
 			self.vocab_size = self.info.vocab_size
 		end 	
 	end
-  	print('vocab size is ' .. self.vocab_size)
+  	--print('vocab size is ' .. self.vocab_size)
   
   	-- open the hdf5 file
-  	print('COMMUNICATION: DataLoader loading h5 file: ', opt.h5_file)
+  	--print('COMMUNICATION: DataLoader loading h5 file: ', opt.h5_file)
   	self.h5_file = hdf5.open(opt.h5_file, 'r')
  	--  open the hdf5 images file
-	print('COMMUNICATION: DataLoader loading h5 images file: ', opt.h5_images_file)
+	--print('COMMUNICATION: DataLoader loading h5 images file: ', opt.h5_images_file)
 	self.h5_images_file = hdf5.open(opt.h5_images_file, 'r')
  	self.h5_images_file_r = hdf5.open(opt.h5_images_file_r, 'r')
 
   	-- extract image size from dataset
   	self.images_size = self.h5_images_file:read('/images'):dataspaceSize()
-        print(self.images_size)
+    --print(self.images_size)
   	assert(#self.images_size == 2, '/images should be a 2D tensor')
 	local feat_size 
 	self.num_images = self.images_size[1] -1
@@ -72,10 +72,10 @@ function DataLoader:__init(opt)
 	else
 		self.feat_size = opt.feat_size
 	end
-  	print(string.format('read %d images of size %d', self.num_images, self.feat_size))
+  	--print(string.format('read %d images of size %d', self.num_images, self.feat_size))
 
   
-	labels = csvigo.load({path='../DATA/game/v2/images_single.objects',mode='raw'})
+	labels = csvigo.load({path='../DATA/game/v2/images_single.objects',verbose=false,mode='raw'})
 
         self.obj2id = {}
         local keys = {}
@@ -120,7 +120,7 @@ end
 
 function DataLoader:load_embeddings(a,dims)
  
-	local d = csvigo.load({path=a, mode="large"})
+	local d = csvigo.load({path=a, mode="large", verbose=false})
 	local header = d[1][1]:split("[ \t]+")
 
 	local rows = #d

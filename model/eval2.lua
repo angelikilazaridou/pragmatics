@@ -29,7 +29,7 @@ cmd:option('-temperature',1,'Temperature') -- tried with 0.5, didn't do the job
 -- misc
 cmd:option('-val_images_use', 1000, 'how many images to use when periodically evaluating the validation loss? (-1 = all)')
 cmd:option('-seed', 123, 'random number generator seed to use')
-cmd:option('-gpuid', 0, 'which gpu to use. -1 = use CPU')
+cmd:option('-gpuid', -1, 'which gpu to use. -1 = use CPU')
 cmd:option('-split','val','What split to use to evaluate')
 cmd:option('-print_info',0,'Whether to print info')
 cmd:option('-noise',0,'Whwether to you use noise in the input of the Receiver')
@@ -54,8 +54,9 @@ end
 ------------------------------------------------------------------------------
 -- Printing opt
 -----------------------------------------------------------------------------
-print(opt)
-
+--print(opt)
+print("#####################  WORKING WITH FILE ########################")
+print(opt.model)
 
 -------------------------------------------------------------------------------
 -- Initialize the network
@@ -115,7 +116,7 @@ local loader = DataLoaderCommunication{h5_file = opt.input_h5, json_file = opt.i
 opt.vocab_size = checkpoint.opt.vocab_size
 vocab_size = opt.vocab_size
 
-labels = csvigo.load({path='../DATA/game/v2/images_single.objects',mode='raw'})
+labels = csvigo.load({path='../DATA/game/v2/images_single.objects',mode='raw', verbose=false})
 
 obj2id = {}
 id2obj = {}
@@ -204,7 +205,10 @@ local function eval_split(split, evalopt)
 		end
 	end
 
-        print(torch.cdiv(correct_attributes,attribute_usage))
+    print("######################    ATTRIBUTE USAGE   ##########################")
+    print(attribute_usage)
+    print("######################   ATTRIBUTE ACCURACY  #########################")
+    print(torch.cdiv(correct_attributes,attribute_usage))
 	print(attribute_usage)
 	
 	return loss_sum/loss_evals, acc/n
@@ -212,13 +216,13 @@ local function eval_split(split, evalopt)
 end
 
 loss,acc = eval_split(opt.split, {val_images_use = opt.val_images_use, verbose=opt.verbose})
-print(acc)
 -- for each target find the most used attribute and its frequency
 
 v,ind = torch.max(stats,2)
 
 clusters = {}
 symbols = {}
+print("#####################     MOST FREQUENT ATTRIBUTE PER CONCEPT   ############")
 -- iterate over concepts
 for a=1,stats:size(1) do
 	local symbol = ind[a][1]
@@ -237,5 +241,8 @@ for a=1,stats:size(1) do
 		clusters[symbol][#clusters[symbol]+1] = concept
 	end
 end
+print("#######################    CLUSTERS OF CONCEPTS     #########################")
 print(clusters)
+print("######################     ACCURACY   #######################################")
+print(string.format("Accuracy is %f",acc))
 --print(symbols)
