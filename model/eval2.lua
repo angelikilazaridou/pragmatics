@@ -205,11 +205,13 @@ local function eval_split(split, evalopt)
 		end
 	end
 
+    print("######################     ACCURACY   #######################################")
+    print(string.format("Accuracy is %f",acc/n))
+
     print("######################    ATTRIBUTE USAGE   ##########################")
     print(attribute_usage)
     print("######################   ATTRIBUTE ACCURACY  #########################")
     print(torch.cdiv(correct_attributes,attribute_usage))
-	print(attribute_usage)
 	
 	return loss_sum/loss_evals, acc/n
 
@@ -243,6 +245,4 @@ for a=1,stats:size(1) do
 end
 print("#######################    CLUSTERS OF CONCEPTS     #########################")
 print(clusters)
-print("######################     ACCURACY   #######################################")
-print(string.format("Accuracy is %f",acc))
 --print(symbols)
