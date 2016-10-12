@@ -57,7 +57,11 @@ end
 --print(opt)
 print("#####################  WORKING WITH FILE ########################")
 print(opt.model)
-
+local tt = {}
+for t in string.gmatch(opt.model,"[^/]+") do
+	table.insert(tt,t)
+end
+model_name = tt[#tt]
 -------------------------------------------------------------------------------
 -- Initialize the network
 -------------------------------------------------------------------------------
@@ -130,7 +134,10 @@ for i=1,#labels do
 end
 
 stats = torch.DoubleTensor(cnt,vocab_size):fill(0)
-
+items = {}
+for a=1,vocab_size do
+	items[a] = {}
+end
 ------------------------------------------------------------------------------
 -- Validation evaluation
 -------------------------------------------------------------------------------
@@ -148,7 +155,6 @@ local function eval_split(split, evalopt)
 	
 	local attribute_usage = torch.DoubleTensor(1,vocab_size):fill(0)
 	local correct_attributes = torch.DoubleTensor(1,vocab_size):fill(0)
-	
 	local tmp = {}
 
 	while true do
@@ -180,8 +186,8 @@ local function eval_split(split, evalopt)
                         end
 		end
 		
-		
 	
+		to_look = 1	
 
 		loss_evals = loss_evals + 1
     		n = n+opt.batch_size
@@ -193,12 +199,19 @@ local function eval_split(split, evalopt)
 			local cor = 0
 			for a=1,vocab_size do
 				if outputs[3][k][a] == 1 then 
-					stats[obj2id[labels[data.infos[k][1]][1]]][a] = stats[obj2id[labels[data.infos[k][1]][1]]][a] +1
-				
+					-- info for symbol usage o target
+					stats[obj2id[labels[data.infos[k][to_look]][1]]][a] = stats[obj2id[labels[data.infos[k][to_look]][1]]][a] +1
+					
 					attribute_usage[1][a] = attribute_usage[1][a] + 1
 					if outputs[1][k][gold[k][1]]==1 then
 						correct_attributes[1][a] = correct_attributes[1][a] + 1
-					end	
+					end
+					-- item specific results
+					target = data.infos[k][1]
+					context = data.infos[k][3]
+					tmp = {}
+					tmp.target = labels[target][1] tmp.context = labels[context][1] tmp.id_1 = target tmp.id_2 = context
+					items[a][#items[a]+1] = tmp
 					break
 				end
 			end
@@ -218,8 +231,8 @@ local function eval_split(split, evalopt)
 end
 
 loss,acc = eval_split(opt.split, {val_images_use = opt.val_images_use, verbose=opt.verbose})
--- for each target find the most used attribute and its frequency
 
+-- for each target find the most used attribute and its frequency
 v,ind = torch.max(stats,2)
 
 clusters = {}
@@ -234,7 +247,9 @@ for a=1,stats:size(1) do
 		if symbols[s] == nil then symbols[s] = {} end
 		if stats[a][s] > 0 then symbols[s][#symbols[s]+1]= concept end
 	end
+	-- if frequ attribute is active
 	if v[a][1] >0 then
+		-- how often is used for that object
 		local prop = v[a][1]/torch.sum(stats[a])
 		if clusters[symbol] == nil  then
 			clusters[symbol] = {}
@@ -246,3 +261,16 @@ end
 print("#######################    CLUSTERS OF CONCEPTS     #########################")
 print(clusters)
 --print(symbols)
+to_visualize = "html/"..model_name..'.txt'
+print(string.format("#######################    WRITING FILES TO: %s     #########################",to_visualize))
+f = io.open(to_visualize,"w")
+io.output(f)
+io.write(model_name.."\n")
+to_sample = 20
+for a=1,#items do
+	for i=1,math.min(to_sample,#items[a]) do
+		s = a..' '..items[a][i].target..' '..items[a][i].id_1..' '..items[a][i].context..' '..items[a][i].id_2..'\n'
+		io.write(s)
+	end
+end
+io.close(f)
