@@ -196,7 +196,7 @@ local function eval_split(split, evalopt)
 		if n >= val_images_use then break end -- we've used enough images	
 
 		for k=1,opt.batch_size do
-			local cor = 0
+			local cor = "Wrong"
 			for a=1,vocab_size do
 				if outputs[3][k][a] == 1 then 
 					-- info for symbol usage o target
@@ -205,12 +205,13 @@ local function eval_split(split, evalopt)
 					attribute_usage[1][a] = attribute_usage[1][a] + 1
 					if outputs[1][k][gold[k][1]]==1 then
 						correct_attributes[1][a] = correct_attributes[1][a] + 1
+						cor = "Correct"
 					end
 					-- item specific results
 					target = data.infos[k][1]
 					context = data.infos[k][3]
 					tmp = {}
-					tmp.target = labels[target][1] tmp.context = labels[context][1] tmp.id_1 = target tmp.id_2 = context
+					tmp.target = labels[target][1] tmp.context = labels[context][1] tmp.id_1 = target tmp.id_2 = context tmp.answer = cor
 					items[a][#items[a]+1] = tmp
 					break
 				end
@@ -265,11 +266,11 @@ to_visualize = "html/"..model_name..'.txt'
 print(string.format("#######################    WRITING FILES TO: %s     #########################",to_visualize))
 f = io.open(to_visualize,"w")
 io.output(f)
-io.write(model_name.."\n")
-to_sample = 20
+io.write(model_name..' '..acc.."\n")
+to_sample = 30
 for a=1,#items do
 	for i=1,math.min(to_sample,#items[a]) do
-		s = a..' '..items[a][i].target..' '..items[a][i].id_1..' '..items[a][i].context..' '..items[a][i].id_2..'\n'
+		s = a..' '..items[a][i].target..' '..items[a][i].id_1..' '..items[a][i].context..' '..items[a][i].id_2..' '..items[a][i].answer..'\n'
 		io.write(s)
 	end
 end

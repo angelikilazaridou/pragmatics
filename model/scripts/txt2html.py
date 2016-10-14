@@ -14,6 +14,7 @@ head = """<html>
 <body>
 <tr>
 Model file: model_f <br/>
+Accuracy: accuracy_ <br/>
 </tr>
 """
 
@@ -25,7 +26,8 @@ tail = """
 
 line_template = """
 <div class="pair">
-Symbol: symbol_v
+Symbol: symbol_v <br/>
+Answer: answer_ <br/>
 <table width=60%>
   <tr>
     <td width=30%>
@@ -49,7 +51,7 @@ def txt2html(input_file, output_file):
             i = i + 1
             line = line.strip()
 	    if i==1:
-	        tags = head.replace("model_f",line)
+	        tags = head.replace("model_f",line.split(" ")[0]).replace("accuracy_",line.split(" ")[1])
 	    else:
                 tags = line2tag(line)
             o_stream.write(tags)
@@ -62,9 +64,11 @@ def line2tag(line):
     id_1 = els[2]
     context= els[3]
     id_2 = els[4]
+    answer = els[5]
     ret_s = line_template.replace("symbol_v", symbol)
     ret_s = ret_s.replace("target", target).replace("context", context)
     ret_s = ret_s.replace("id_1", id_1).replace("id_2", id_2)
+    ret_s = ret_s.replace("answer_",answer)
     return ret_s
     
 if __name__ == "__main__":
