@@ -175,7 +175,7 @@ local function eval_split(split, evalopt)
     
 		--forward model
 		local outputs = protos.communication.players:forward({inputsS, inputsR, opt.temperature})
-		
+		print(outputs[4][1])	
 		--prepage gold data	
 		local gold = data.referent_position
     	

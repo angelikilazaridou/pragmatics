@@ -8,7 +8,7 @@ require 'misc.DataLoaderGrounding'
 require 'misc.optim_updates'
 require 'players.Players'
 require 'csvigo'
-local sender = require 'players.Sender_gr'
+local sender = require 'players.Sender_nemb_gr'
 
 -------------------------------------------------------------------------------
 -- Input arguments and options
@@ -42,6 +42,7 @@ cmd:option('-vocab_size',-1,'The number of words in the vocabulary')
 cmd:option('-embeddings_file_S','','The txt file containing the word embeddings for Sender. If this option is used, the word embeddings are going to get initialized')
 cmd:option('-embeddings_file_R','','The txt file containing the word embeddings for Receiver. If this option is used, the word embeddings are going to get initialized')
 cmd:option('-fine_tune',0,'Option to fine-tune embeddings. 0=no, 1=sender only, 2=receiver only, 3=both')
+cmd:option('-quantize',-1,'Whether to quantize input. If >0, then number is resulting dimensionality')
 -- Model parameters
 cmd:option('-grounding',0, 'The probability of switching to a grounding task [0=just communication-1=just grounding].')
 cmd:option('-hidden_size',20,'The hidden size ')
@@ -68,7 +69,7 @@ cmd:option('-rewardScale',1,'Scaling alpha of the reward')
 -- Evaluation/Checkpointing
 cmd:option('-val_images_use', 1000, 'how many images to use when periodically evaluating the validation loss? (-1 = all)')
 cmd:option('-save_checkpoint_every', 3500, 'how often to save a model checkpoint?')
-cmd:option('-checkpoint_path', 'grounding/RL/', 'folder to save checkpoints into (empty = this folder)')
+cmd:option('-checkpoint_path', 'grounding/quantize/', 'folder to save checkpoints into (empty = this folder)')
 cmd:option('-losses_log_every', 1, 'How often do we snapshot losses, for inclusion in the progress dump? (0 = disable)')
 -- misc
 cmd:option('-id', '', 'an id identifying this run/job. used in cross-val and appended when writing progress files')
@@ -161,22 +162,11 @@ local loaderCommunication, loaderGrounding, game_size, feat_size, vocab_size
  -- Create the Data Loader instance for the Communication
 -------------------------------------------------------------------------------
 if opt.grounding ~= 1 then
-	loaderCommunication = DataLoaderCommunication{h5_file = opt.comm_input_h5, json_file = opt.comm_input_json,  feat_size = opt.comm_feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size, h5_images_file = opt.comm_input_h5_images, h5_images_file_r = opt.comm_input_h5_images_r, game_size = opt.comm_game_size, embeddings_file_S = opt.embeddings_file_S, embeddings_file_R = opt.embeddings_file_R, embedding_size_S = opt.embedding_size_S, embedding_size_R = opt.embedding_size_R, noise = opt.comm_noise, opt.norm}
+	loaderCommunication = DataLoaderCommunication{h5_file = opt.comm_input_h5, json_file = opt.comm_input_json,  feat_size = opt.comm_feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size, h5_images_file = opt.comm_input_h5_images, h5_images_file_r = opt.comm_input_h5_images_r, game_size = opt.comm_game_size, embeddings_file_S = opt.embeddings_file_S, embeddings_file_R = opt.embeddings_file_R, embedding_size_S = opt.embedding_size_S, embedding_size_R = opt.embedding_size_R, noise = opt.comm_noise, opt.norm, quantize = opt.quantize}
 	game_size = loaderCommunication:getGameSize()
 	feat_size = loaderCommunication:getFeatSize()
 	vocab_size = loaderCommunication:getVocabSize()
 end
-
-------------------------------------------------------------------------------
--- Create the Data Loader instance for the Grounding
--------------------------------------------------------------------------------
-if opt.grounding ~= 0 then
-	loaderGrounding = DataLoaderGrounding{h5_file = opt.gr_input_h5, json_file = opt.gr_input_json,  feat_size = opt.gr_feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size, h5_images_file = opt.gr_input_h5_images, embeddings_file_S = opt.embeddings_file_S, embeddings_file_R = opt.embeddings_file_R, embedding_size_S = opt.embedding_size_S, embedding_size_R = opt.embedding_size_R}
-	game_size = loaderGrounding:getGameSize()
-	feat_size = loaderGrounding:getFeatSize()
-	vocab_size = loaderGrounding:getVocabSize()
-end
-
 
 -------------------------------------------------------------------------------
 -- Override option to opt
@@ -184,8 +174,15 @@ end
 opt.vocab_size = vocab_size
 opt.game_size = game_size
 opt.feat_size = feat_size
+opt.comm_feat_size = feat_size
 
-print(vocab_size)
+------------------------------------------------------------------------------
+-- Create the Data Loader instance for the Grounding
+-------------------------------------------------------------------------------
+if opt.grounding ~= 0 then
+	loaderGrounding = DataLoaderGrounding{h5_file = opt.gr_input_h5, json_file = opt.gr_input_json,  feat_size = opt.gr_feat_size, gpu = opt.gpuid, vocab_size = opt.vocab_size, h5_images_file = opt.gr_input_h5_images, embeddings_file_S = opt.embeddings_file_S, embeddings_file_R = opt.embeddings_file_R, embedding_size_S = opt.embedding_size_S, embedding_size_R = opt.embedding_size_R}
+end
+
 ------------------------------------------------------------------------------
 -- Printing opt
 -----------------------------------------------------------------------------
@@ -209,7 +206,6 @@ if opt.grounding < 1 then
 		local nodes = protos.communication.players.sender:listModules()[1]['forwardnodes']
 		for _,node in ipairs(nodes) do
 			if node.data.annotations.name=='embeddings_S' then
-				print("Tralalala")
 				node.data.module.weight = loaderCommunication:getEmbeddings("sender").matrix:clone()
 			end
 		end
@@ -328,8 +324,8 @@ local function eval_split(split, evalopt)
 		if n >= val_images_use then break end -- we've used enough images	
 
 		if opt.print_info==1 then
-			local correct_answers = torch.CudaTensor(1,opt.batch_size):fill(0)
-			local correct_attributes = torch.CudaTensor(opt.batch_size, outputs[3]:size(2)):fill(0)
+			local correct_answers = torch.FloatTensor(1,opt.batch_size):fill(0)
+			local correct_attributes = torch.FloatTensor(opt.batch_size, outputs[3]:size(2)):fill(0)
 			for k=1,opt.batch_size do
 				if outputs[1][k][gold[k][1]]==1 then
 					correct_answers[1][k] = 1
@@ -488,7 +484,7 @@ while true do
 
 	if iter % opt.print_every == 0  and opt.grounding~=1 then
 		--evaluate val performance 
-		loss,acc = eval_split('val', {val_images_use = opt.val_images_use, verbose=opt.verbose})
+		loss,acc = eval_split('test_hard', {val_images_use = opt.val_images_use, verbose=opt.verbose})
 		val_acc_history[iter] = acc
 		loss_history[iter] = comm_loss
 	end

@@ -95,7 +95,7 @@ function players:updateOutput(input)
 	table.insert(outputs, self.sampled_image)
 	table.insert(outputs, baseline)
 	table.insert(outputs, self.sampled_feat)
-
+	table.insert(outputs,self.scores)
 	return outputs
 end
 

@@ -8,7 +8,7 @@ import sys
 
 logs = "to_run.txt"
 
-result_dir = "exp1_plots/"
+result_dir = "prob_plots/"
 logs_dir = "../logs_fb/grounding/RL/"
 
 N = 100

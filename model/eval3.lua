@@ -115,7 +115,7 @@ else
 	opt.norm = 1
 end
 
-local loader = DataLoaderCommunication{h5_file = opt.input_h5, json_file = opt.input_json,  feat_size = checkpoint.opt.feat_size, gpu = checkpoint.opt.gpuid, vocab_size = checkpoint.opt.vocab_size, h5_images_file = opt.input_h5_images, h5_images_file_r = opt.input_h5_images_r, game_size = checkpoint.opt.comm_game_size, embeddings_file_S = "", embeddings_file_R = "", noise = opt.noise, norm = opt.norm}
+local loader = DataLoaderCommunication{h5_file = opt.input_h5, json_file = opt.input_json,  feat_size = checkpoint.opt.feat_size, gpu = checkpoint.opt.gpuid, vocab_size = checkpoint.opt.vocab_size, h5_images_file = opt.input_h5_images, h5_images_file_r = opt.input_h5_images_r, game_size = checkpoint.opt.comm_game_size, embeddings_file_S = "", embeddings_file_R = "", noise = opt.noise, norm = opt.norm, quantize = -1}
 
 opt.vocab_size = checkpoint.opt.vocab_size
 vocab_size = opt.vocab_size
@@ -159,6 +159,9 @@ local function eval_split(split, evalopt)
 	local correct_attributes = torch.DoubleTensor(1,vocab_size):fill(0)
 	local tmp = {}
 
+	all_examples = torch.DoubleTensor(opt.batch_size * math.ceil(opt.val_images_use/opt.batch_size),vocab_size):fill(0)
+	local curr_idx = 1
+
 	while true do
 
 		-- get batch of data  
@@ -186,6 +189,8 @@ local function eval_split(split, evalopt)
                         if outputs[1][k][gold[k][1]]==1 then
                                 acc = acc+1
                         end
+			all_examples[curr_idx] = outputs[4][k]
+			curr_idx  = curr_idx + 1
 		end
 		
 	
@@ -216,23 +221,23 @@ local function eval_split(split, evalopt)
 					tmp = {}
 					tmp.target = labels[target][1] tmp.context = labels[context][1] tmp.id_1 = target tmp.id_2 = context tmp.answer = cor
 					items[a][#items[a]+1] = tmp
-                    if cor == "Correct" then
-                        cond_cor[obj2id[labels[target][1]]][obj2id[labels[context][1]]][a] = cond_cor[obj2id[labels[target][1]]][obj2id[labels[context][1]]][a] +  1
-                    end
-                    cond[obj2id[labels[target][1]]][obj2id[labels[context][1]]][a] = cond[obj2id[labels[target][1]]][obj2id[labels[context][1]]][a] +  1
+                    			if cor == "Correct" then
+                        			cond_cor[obj2id[labels[target][1]]][obj2id[labels[context][1]]][a] = cond_cor[obj2id[labels[target][1]]][obj2id[labels[context][1]]][a] +  1
+                    			end
+                    			cond[obj2id[labels[target][1]]][obj2id[labels[context][1]]][a] = cond[obj2id[labels[target][1]]][obj2id[labels[context][1]]][a] +  1
 					break
 				end
 			end
 		end
 	end
 
-    print("######################     ACCURACY   #######################################")
-    print(string.format("Accuracy is %f",acc/n))
+    	print("######################     ACCURACY   #######################################")
+   	print(string.format("Accuracy is %f",acc/n))
 
-    print("######################    ATTRIBUTE USAGE   ##########################")
-    print(attribute_usage)
-    print("######################   ATTRIBUTE ACCURACY  #########################")
-    print(torch.cdiv(correct_attributes,attribute_usage))
+    	print("######################    ATTRIBUTE USAGE   ##########################")
+   	print(attribute_usage)
+    	print("######################   ATTRIBUTE ACCURACY  #########################")
+    	print(torch.cdiv(correct_attributes,attribute_usage))
 	
 	return loss_sum/loss_evals, acc/n
 
@@ -283,7 +288,7 @@ end
 f:close(f)
 
 
-
+if 1==2 then
 print("#######################   PRINT TAREGT-CONTEXT-SYMBOL INFO   ##########################")
 f = io.open("context-symbol.info_"..model_name..".txt","w")
 lines = 0
@@ -305,3 +310,27 @@ for t=1,cnt do
 end
 f:close(f)
 print(string.format("Wrote %d lines",lines))
+end
+
+-- This assumes `t1` is a 2-dimensional tensor!
+function tensor2table(t1)
+local t2 = {}
+for i=1,t1:size(1) do
+  t2[i] = {}
+  for j=1,t1:size(2) do
+    t2[i][j] = t1[i][j]
+  end
+end
+return t2
+end
+
+print("#######################   EXAMPLES SCORES   ##########################")
+f_name = "redundancy/"..model_name..".txt"
+local t = tensor2table(all_examples)
+csvigo.save(f_name, t)
+--local f = hdf5.open("redundancy/"..model_name..".txt", "w")
+--f:write("scores", all_examples)
+--f:close()
+
+
+

@@ -15,9 +15,10 @@ function DataLoader:__init(opt)
 	self.norm = opt.norm
 	self.real_vocab_size = self.info.vocab_size
 	self.game_size = opt.game_size
-
+	self.quantize = opt.quantize
 	self.embeddings = {}
 
+	
 	-- load word embeddings and set vocab size of receiver
 	if opt.embeddings_file_R~="" then
 		self.embeddings["receiver"] = {}
@@ -61,18 +62,28 @@ function DataLoader:__init(opt)
 
   	-- extract image size from dataset
   	self.images_size = self.h5_images_file:read('/images'):dataspaceSize()
-    --print(self.images_size)
   	assert(#self.images_size == 2, '/images should be a 2D tensor')
-	local feat_size 
 	self.num_images = self.images_size[1] -1
-	feat_size = self.images_size[2]
+	local feat_size = self.images_size[2]
 	
 	if opt.feat_size == -1 then
 		self.feat_size = feat_size
+		self.read_size = feat_size
 	else
 		self.feat_size = opt.feat_size
+		self.read_size = opt.feat_size
+	end
+	if self.quantize > 0 then
+		self.feat_size = opt.quantize
+		self.read_size = feat_size
+		self.buckets = self.quantize
+		self.intermediate = 10000
+		self.bucket_size = math.ceil(self.intermediate/self.buckets)
+		self.weights = torch.DoubleTensor(self.read_size, self.intermediate)
+		self.weights:uniform(-0.08,0.08)
 	end
   	--print(string.format('read %d images of size %d', self.num_images, self.feat_size))
+
 
   
 	labels = csvigo.load({path='../DATA/game/v2/images_single.objects',verbose=false,mode='raw'})
@@ -145,6 +156,25 @@ function DataLoader:load_embeddings(a,dims)
 	return vecs, idx
 end
 
+function DataLoader:f_quantize(img, quantize)
+	if quantize <=0 then
+		return img
+	end
+	local m = img * self.weights
+	local b = torch.FloatTensor(self.buckets):fill(0)
+	local bb = 1
+	local offset
+	for i=0,self.buckets-2 do
+		offset = (i*self.bucket_size)
+		_,b[bb]  = torch.max(m[{{1,1},{offset+1, offset+self.bucket_size}}],2)
+		bb = bb+1
+	end
+	if bb == self.buckets then
+		offset = (self.buckets-1) * self.bucket_size
+		_, b[bb] = torch.max(m[{{1,1},{offset+1,-1}}],2)	
+	end
+	return b	
+end
 
 function DataLoader:getVocab()
 	return self.vocab
@@ -202,9 +232,10 @@ function DataLoader:getBatch(opt)
 			-- pick an image of that concept for P1
                         local bb1 = self.obj2id[c]["ims"][torch.random(#(self.obj2id[c].ims))]
                         table.insert(info_struct,bb1)
-			local img = self.h5_images_file:read('/images'):partial({bb1,bb1}, {1,self.feat_size})
+			local img = self.h5_images_file:read('/images'):partial({bb1,bb1}, {1,self.read_size})
 			--normalize to unit norm
-			if self.norm == 1 then img_batch[ii][i] = img/torch.norm(img) else img_batch[ii][i] = img end
+			if self.norm == 1 then img = img/torch.norm(img) end
+			img_batch[ii][i] = self:f_quantize(img, self.quantize)
 
 			-- pick an image of the same concept for P2
                         local bb2 = self.obj2id[c]["ims"][torch.random(#(self.obj2id[c].ims))]
@@ -213,10 +244,10 @@ function DataLoader:getBatch(opt)
 			end
 			if self.noise == 0 then bb2 = bb1 end
                         table.insert(info_struct,bb2)
-			local img =  self.h5_images_file_r:read('/images'):partial({bb2,bb2}, {1,self.feat_size})
+			local img =  self.h5_images_file_r:read('/images'):partial({bb2,bb2}, {1,self.read_size})
 			-- normalize to unit notm
-                        if self.norm == 1 then refs[indices[ii]][i] = img/torch.norm(img) else refs[indices[ii]][i] = img end
-
+                        if self.norm == 1 then img = img/torch.norm(img) end
+			refs[indices[ii]][i] = self:f_quantize(img, self.quantize)
 		end
 
 		i = i+1	
